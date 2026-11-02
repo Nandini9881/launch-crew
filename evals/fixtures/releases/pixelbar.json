@@ -1,0 +1,110 @@
+{
+  "project": "pixelbar",
+  "version": "v1.0",
+  "notes": "Dark mode, multi-monitor support and a rewritten settings screen.",
+  "prs": [
+    {
+      "number": 101,
+      "title": "Add dark mode that follows the system theme",
+      "body": "New theme setting and system sync.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 101,
+      "author_login": "dev101"
+    },
+    {
+      "number": 102,
+      "title": "Support multiple monitors",
+      "body": "The bar now appears on every display.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 102,
+      "author_login": "dev102"
+    },
+    {
+      "number": 103,
+      "title": "Rewrite settings screen with search",
+      "body": "Find any setting by name.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 103,
+      "author_login": "dev103"
+    },
+    {
+      "number": 104,
+      "title": "Bump deps",
+      "body": "Routine dependency update.",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 104,
+      "author_login": "dev104"
+    },
+    {
+      "number": 105,
+      "title": "Update CI cache key",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 105,
+      "author_login": "dev105"
+    },
+    {
+      "number": 106,
+      "title": "Fix typo in changelog",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 106,
+      "author_login": "dev106"
+    },
+    {
+      "number": 107,
+      "title": "Rename internal helper functions",
+      "body": "Refactor only.",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 107,
+      "author_login": "dev107"
+    },
+    {
+      "number": 108,
+      "title": "Bump Node to 22 in CI",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 108,
+      "author_login": "dev108"
+    },
+    {
+      "number": 109,
+      "title": "Remove unused imports",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 109,
+      "author_login": "dev109"
+    }
+  ],
+  "headline_prs": [
+    101,
+    102,
+    103
+  ],
+  "chore_prs": [
+    104,
+    105,
+    106,
+    107,
+    108,
+    109
+  ]
+}

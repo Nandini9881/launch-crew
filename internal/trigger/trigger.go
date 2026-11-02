@@ -1,0 +1,73 @@
+// Package trigger turns a GitHub release or a manual form into a LaunchSpec,
+// and runs the ProcessRelease job that saves it as a draft launch.
+package trigger
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+
+	"github.com/shubham-tomar/launchcrew/internal/drafting"
+)
+
+// Role is a crew role for manual launches, with the hint used in drafts.
+type Role struct {
+	Name string `json:"name"`
+	Hint string `json:"hint"`
+}
+
+// DefaultRoles are used when a manual launch names none.
+var DefaultRoles = []Role{
+	{Name: "Attendee", Hint: "came along"},
+	{Name: "Speaker", Hint: "spoke about"},
+	{Name: "Organiser", Hint: "helped organise"},
+}
+
+// CrewSuggestion is a person suggested for the crew; Ticked ones are pre-selected.
+type CrewSuggestion struct {
+	GitHubUserID int64
+	Login        string
+	AvatarURL    string
+	PRNumber     int
+	PRTitle      string
+	Ticked       bool
+}
+
+// LaunchSpec is what a trigger produces: everything needed to save a draft launch.
+// Captain is the release author's login (empty for manual launches).
+type LaunchSpec struct {
+	Title, Summary, Source, ReleaseTag, ReleaseURL string
+	Headlines, Chores                              []drafting.Change
+	Crew                                           []CrewSuggestion
+	HeroURL                                        string
+	Roles                                          []Role
+	RepoFullName                                   string
+	ReleaseID                                      int64
+	Captain                                        string
+}
+
+// Project is the repository name for releases, or the title otherwise.
+func (s LaunchSpec) Project() string {
+	if _, name, ok := strings.Cut(s.RepoFullName, "/"); ok {
+		return name
+	}
+	return s.Title
+}
+
+// Trigger builds a LaunchSpec from its input.
+type Trigger interface {
+	Build(ctx context.Context, in Input) (LaunchSpec, error)
+}
+
+// Input carries either a release webhook payload or a manual form.
+type Input struct {
+	ReleasePayload json.RawMessage
+	Manual         *ManualInput
+}
+
+// ManualInput is the manual launch form.
+type ManualInput struct {
+	Title, Summary string
+	Roles          []Role
+	HeroURL        string
+}

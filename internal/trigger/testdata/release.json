@@ -1,0 +1,41 @@
+{
+  "action": "published",
+  "release": {
+    "url": "https://api.github.com/repos/acme/rocket/releases/1001",
+    "html_url": "https://github.com/acme/rocket/releases/tag/v1.2.0",
+    "id": 1001,
+    "node_id": "RE_kwDOAAAAAc4AAAPp",
+    "tag_name": "v1.2.0",
+    "target_commitish": "main",
+    "name": "Rocket 1.2",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-30T09:12:44Z",
+    "published_at": "2026-10-30T09:20:01Z",
+    "author": {
+      "login": "captain",
+      "id": 910010,
+      "node_id": "U_kgDOAAAACg",
+      "avatar_url": "https://avatars.githubusercontent.com/u/910010?v=4",
+      "type": "User",
+      "site_admin": false
+    },
+    "assets": [],
+    "tarball_url": "https://api.github.com/repos/acme/rocket/tarball/v1.2.0",
+    "zipball_url": "https://api.github.com/repos/acme/rocket/zipball/v1.2.0",
+    "body": "## What's Changed\n* Split-pane resize with keyboard by @alice in #101\n* Fix crash on empty config by @bob in #102\n* Bump golang.org/x/net by @dependabot[bot] in #103\n* Docs: fix typo in README by @carol in #104\n* Add tracing exporter by @dave in #105\n* CI: cache Go modules by @renovate in #106\n\n**Full Changelog**: https://github.com/acme/rocket/compare/v1.1.0...v1.2.0"
+  },
+  "repository": {
+    "id": 777,
+    "node_id": "R_kgDOAAADCQ",
+    "name": "rocket",
+    "full_name": "acme/rocket",
+    "private": false,
+    "owner": {"login": "acme", "id": 500, "type": "Organization"},
+    "html_url": "https://github.com/acme/rocket",
+    "default_branch": "main"
+  },
+  "organization": {"login": "acme", "id": 500},
+  "sender": {"login": "captain", "id": 910010, "type": "User"},
+  "installation": {"id": 4242, "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNDI0Mg=="}
+}

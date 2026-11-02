@@ -1,0 +1,23 @@
+@media print {
+  body {
+    background: none;
+  }
+
+  .show {
+    background-color: transparent;
+    color: var(--color-card-ink);
+  }
+
+  .show-qr {
+    inline-size: 120mm;
+    block-size: 120mm;
+  }
+
+  .show-download {
+    display: none;
+  }
+
+  .show .wordmark {
+    color: var(--color-card-ink);
+  }
+}

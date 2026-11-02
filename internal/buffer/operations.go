@@ -1,0 +1,468 @@
+package buffer
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"path"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
+)
+
+// Channel is a connected social account.
+type Channel struct {
+	ID, Name, Service, Avatar string
+	Locked, Paused, Connected bool
+}
+
+// ServiceRules is what a service accepts for a regular post.
+type ServiceRules struct {
+	MaxChars                       int
+	Threads, ImageOK, FirstComment bool
+}
+
+// Config holds rules keyed by lowercase Buffer service name (twitter, bluesky, ...).
+type Config struct {
+	Services map[string]ServiceRules
+}
+
+// Post is a Buffer post.
+type Post struct {
+	ID, ChannelID, Text, Status string
+	SentAt, CreatedAt           time.Time
+}
+
+// CreatePostInput describes one post. Mode is addToQueue or customScheduled
+// (DueAt required). Thread, when set, is the whole thread in order, root
+// first; Text defaults to Thread[0].
+type CreatePostInput struct {
+	ChannelID, Text string
+	Mode            string
+	DueAt           *time.Time
+	SaveToDraft     bool
+	AssetURLs       []string
+	FirstComment    string
+	Thread          []string
+}
+
+// CreatePostResult reports the created post.
+type CreatePostResult struct {
+	PostID       string
+	SavedAsDraft bool
+	Note         string
+}
+
+// Limit is one channel's daily posting limit status. Limit nil means unlimited.
+type Limit struct {
+	IsAtLimit       bool
+	Limit           *int
+	Scheduled, Sent int
+}
+
+func (c *Client) fresh(at pgtype.Timestamptz) bool {
+	return at.Valid && c.now().Sub(at.Time) < cacheTTL
+}
+
+func orgID(conn sqlc.BufferConnection) (string, error) {
+	if !conn.OrgID.Valid || conn.OrgID.String == "" {
+		return "", errors.New("buffer: connection has no organization id")
+	}
+	return conn.OrgID.String, nil
+}
+
+// Channels lists the organization's channels, cached on the connection for 1 h.
+func (c *Client) Channels(ctx context.Context, connID uuid.UUID) ([]Channel, error) {
+	conn, err := c.q.GetBufferConnection(ctx, connID)
+	if err != nil {
+		return nil, fmt.Errorf("buffer: load connection: %w", err)
+	}
+	if c.fresh(conn.ChannelsCachedAt) && conn.ChannelsJson != nil {
+		var chs []Channel
+		if err := json.Unmarshal(conn.ChannelsJson, &chs); err == nil {
+			return chs, nil
+		}
+	}
+	org, err := orgID(conn)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Channels []struct {
+			ID, Name, Service, Avatar               string
+			DisplayName                             *string
+			IsLocked, IsQueuePaused, IsDisconnected bool
+		}
+	}
+	if err := c.Do(ctx, connID, qChannels, map[string]any{"organizationId": org}, &out); err != nil {
+		return nil, err
+	}
+	chs := make([]Channel, 0, len(out.Channels))
+	for _, ch := range out.Channels {
+		name := ch.Name
+		if ch.DisplayName != nil && *ch.DisplayName != "" {
+			name = *ch.DisplayName
+		}
+		chs = append(chs, Channel{
+			ID: ch.ID, Name: name, Service: strings.ToLower(ch.Service), Avatar: ch.Avatar,
+			Locked: ch.IsLocked, Paused: ch.IsQueuePaused, Connected: !ch.IsDisconnected,
+		})
+	}
+	c.saveCache(ctx, connID, chs, func(b []byte, at pgtype.Timestamptz) error {
+		return c.q.UpdateConnectionChannelsCache(ctx, sqlc.UpdateConnectionChannelsCacheParams{ID: connID, ChannelsJson: b, ChannelsCachedAt: at})
+	})
+	return chs, nil
+}
+
+func (c *Client) saveCache(ctx context.Context, connID uuid.UUID, v any, save func([]byte, pgtype.Timestamptz) error) {
+	b, err := json.Marshal(v)
+	if err == nil {
+		err = save(b, pgtype.Timestamptz{Time: c.now(), Valid: true})
+	}
+	if err != nil {
+		log.Printf("buffer: cache for %s: %v", connID, err)
+	}
+}
+
+// builtinRules come from Buffer's character-limits and posts guides
+// (2026-11-01). They fill whatever the configuration query leaves out.
+var builtinRules = map[string]ServiceRules{
+	"twitter":        {MaxChars: 280, Threads: true, ImageOK: true},
+	"bluesky":        {MaxChars: 300, Threads: true, ImageOK: true},
+	"threads":        {MaxChars: 500, Threads: true, ImageOK: true},
+	"mastodon":       {MaxChars: 500, Threads: true, ImageOK: true},
+	"linkedin":       {MaxChars: 3000, ImageOK: true, FirstComment: true},
+	"facebook":       {MaxChars: 5000, ImageOK: true, FirstComment: true},
+	"instagram":      {MaxChars: 2196, ImageOK: true, FirstComment: true},
+	"youtube":        {MaxChars: 5000},
+	"tiktok":         {MaxChars: 2200, ImageOK: true},
+	"pinterest":      {MaxChars: 500, ImageOK: true},
+	"googlebusiness": {MaxChars: 4000, ImageOK: true},
+}
+
+type serviceConfig struct {
+	Service string
+	Content []struct {
+		ConfigurationContentTypes []string
+		SupportedProperties       []string
+		Rules                     []struct {
+			Typename  string `json:"__typename"`
+			Property  string
+			MaxLength int
+		}
+	}
+}
+
+// Configuration returns per-service post rules, cached on the connection for 1 h.
+// If Buffer's (experimental) configuration query errors, it returns the
+// built-in table uncached.
+func (c *Client) Configuration(ctx context.Context, connID uuid.UUID) (Config, error) {
+	conn, err := c.q.GetBufferConnection(ctx, connID)
+	if err != nil {
+		return Config{}, fmt.Errorf("buffer: load connection: %w", err)
+	}
+	if c.fresh(conn.ConfigCachedAt) && conn.ConfigJson != nil {
+		var cfg Config
+		if err := json.Unmarshal(conn.ConfigJson, &cfg); err == nil {
+			return cfg, nil
+		}
+	}
+	org, err := orgID(conn)
+	if err != nil {
+		return Config{}, err
+	}
+	var out struct {
+		Configuration struct{ Services []serviceConfig }
+	}
+	err = c.Do(ctx, connID, qConfiguration, map[string]any{"organizationId": org}, &out)
+	var gqlErr *GraphQLError
+	if errors.As(err, &gqlErr) {
+		log.Printf("buffer: configuration unavailable, using built-in rules: %v", err)
+		return buildConfig(nil), nil
+	}
+	if err != nil {
+		return Config{}, err
+	}
+	cfg := buildConfig(out.Configuration.Services)
+	c.saveCache(ctx, connID, cfg, func(b []byte, at pgtype.Timestamptz) error {
+		return c.q.UpdateConnectionConfigCache(ctx, sqlc.UpdateConnectionConfigCacheParams{ID: connID, ConfigJson: b, ConfigCachedAt: at})
+	})
+	return cfg, nil
+}
+
+// buildConfig reads the "post" content entry of each service. A service with
+// several channel types gets the strictest combination (lowest MaxChars, a
+// capability only if every type has it). Missing services and lengths come
+// from builtinRules.
+func buildConfig(services []serviceConfig) Config {
+	got := map[string]ServiceRules{}
+	for _, s := range services {
+		name := strings.ToLower(s.Service)
+		for _, ct := range s.Content {
+			if !slices.Contains(ct.ConfigurationContentTypes, "post") {
+				continue
+			}
+			r := ServiceRules{
+				Threads:      slices.Contains(ct.SupportedProperties, "thread"),
+				ImageOK:      slices.Contains(ct.SupportedProperties, "image"),
+				FirstComment: slices.Contains(ct.SupportedProperties, "firstComment"),
+			}
+			for _, rule := range ct.Rules {
+				if rule.Typename == "LengthRule" && rule.Property == "text" {
+					r.MaxChars = rule.MaxLength
+				}
+			}
+			prev, seen := got[name]
+			if seen {
+				if prev.MaxChars > 0 && (r.MaxChars == 0 || prev.MaxChars < r.MaxChars) {
+					r.MaxChars = prev.MaxChars
+				}
+				r.Threads = r.Threads && prev.Threads
+				r.ImageOK = r.ImageOK && prev.ImageOK
+				r.FirstComment = r.FirstComment && prev.FirstComment
+			}
+			got[name] = r
+		}
+	}
+	for name, b := range builtinRules {
+		r, ok := got[name]
+		if !ok {
+			got[name] = b
+			continue
+		}
+		if r.MaxChars == 0 {
+			r.MaxChars = b.MaxChars
+			got[name] = r
+		}
+	}
+	return Config{Services: got}
+}
+
+type postNode struct {
+	ID, ChannelID, Text, Status string
+	SentAt                      *time.Time
+	CreatedAt                   time.Time
+}
+
+type postsData struct {
+	Posts struct {
+		Edges []struct{ Node postNode }
+	}
+}
+
+func (d postsData) posts() []Post {
+	out := make([]Post, 0, len(d.Posts.Edges))
+	for _, e := range d.Posts.Edges {
+		p := Post{ID: e.Node.ID, ChannelID: e.Node.ChannelID, Text: e.Node.Text, Status: e.Node.Status, CreatedAt: e.Node.CreatedAt}
+		if e.Node.SentAt != nil {
+			p.SentAt = *e.Node.SentAt
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// SentPosts returns up to limit (max 100) sent posts, newest first, in one request.
+func (c *Client) SentPosts(ctx context.Context, connID uuid.UUID, limit int) ([]Post, error) {
+	if limit <= 0 || limit > maxPage {
+		limit = maxPage
+	}
+	conn, err := c.q.GetBufferConnection(ctx, connID)
+	if err != nil {
+		return nil, fmt.Errorf("buffer: load connection: %w", err)
+	}
+	org, err := orgID(conn)
+	if err != nil {
+		return nil, err
+	}
+	var out postsData
+	if err := c.Do(ctx, connID, qSentPosts, map[string]any{"organizationId": org, "first": limit}, &out); err != nil {
+		return nil, err
+	}
+	return out.posts(), nil
+}
+
+// PostsCreatedBetween returns the first 100 posts on a channel created in [from, to].
+func (c *Client) PostsCreatedBetween(ctx context.Context, connID uuid.UUID, channelID string, from, to time.Time) ([]Post, error) {
+	conn, err := c.q.GetBufferConnection(ctx, connID)
+	if err != nil {
+		return nil, fmt.Errorf("buffer: load connection: %w", err)
+	}
+	org, err := orgID(conn)
+	if err != nil {
+		return nil, err
+	}
+	var out postsData
+	err = c.Do(ctx, connID, qPostsCreatedBetween, map[string]any{
+		"organizationId": org, "channelId": channelID, "first": maxPage,
+		"start": from.UTC().Format(time.RFC3339Nano), "end": to.UTC().Format(time.RFC3339Nano),
+	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return out.posts(), nil
+}
+
+// CreatePost creates a post. If Buffer answers LimitReachedError, it retries
+// once as a draft and says so in Note.
+func (c *Client) CreatePost(ctx context.Context, connID uuid.UUID, in CreatePostInput) (CreatePostResult, error) {
+	input, err := c.postInput(ctx, connID, in)
+	if err != nil {
+		return CreatePostResult{}, err
+	}
+	id, err := c.createPost(ctx, connID, input)
+	var lre *LimitReachedError
+	if errors.As(err, &lre) && !in.SaveToDraft {
+		input["saveToDraft"] = true
+		if id, err = c.createPost(ctx, connID, input); err != nil {
+			return CreatePostResult{}, err
+		}
+		return CreatePostResult{PostID: id, SavedAsDraft: true, Note: DraftNote}, nil
+	}
+	if err != nil {
+		return CreatePostResult{}, err
+	}
+	return CreatePostResult{PostID: id, SavedAsDraft: in.SaveToDraft}, nil
+}
+
+func (c *Client) createPost(ctx context.Context, connID uuid.UUID, input map[string]any) (string, error) {
+	var out struct {
+		CreatePost struct {
+			Typename string `json:"__typename"`
+			Message  string
+			Post     struct{ ID string }
+		}
+	}
+	if err := c.Do(ctx, connID, qCreatePost, map[string]any{"input": input}, &out); err != nil {
+		return "", err
+	}
+	r := out.CreatePost
+	switch r.Typename {
+	case "PostActionSuccess":
+		return r.Post.ID, nil
+	case "LimitReachedError":
+		return "", &LimitReachedError{Message: r.Message}
+	default:
+		return "", &MutationError{Type: r.Typename, Message: r.Message}
+	}
+}
+
+// metadataKeys maps a channel service to its PostInputMetaData field.
+var metadataKeys = map[string]string{"googlebusiness": "google"}
+
+var videoExts = []string{".mp4", ".mov", ".m4v", ".webm"}
+
+func (c *Client) postInput(ctx context.Context, connID uuid.UUID, in CreatePostInput) (map[string]any, error) {
+	text := in.Text
+	if text == "" && len(in.Thread) > 0 {
+		text = in.Thread[0]
+	}
+	mode := in.Mode
+	if mode == "" {
+		mode = "addToQueue"
+	}
+	input := map[string]any{
+		"channelId": in.ChannelID, "text": text,
+		"schedulingType": "automatic", "mode": mode,
+	}
+	switch mode {
+	case "addToQueue":
+	case "customScheduled":
+		if in.DueAt == nil {
+			return nil, errors.New("buffer: customScheduled needs DueAt")
+		}
+		input["dueAt"] = in.DueAt.UTC().Format(time.RFC3339)
+	default:
+		return nil, fmt.Errorf("buffer: unknown mode %q", mode)
+	}
+	if in.SaveToDraft {
+		input["saveToDraft"] = true
+	}
+	if len(in.AssetURLs) > 0 {
+		assets := make([]map[string]any, 0, len(in.AssetURLs))
+		for _, u := range in.AssetURLs {
+			kind := "image"
+			if slices.Contains(videoExts, strings.ToLower(path.Ext(strings.SplitN(u, "?", 2)[0]))) {
+				kind = "video"
+			}
+			assets = append(assets, map[string]any{kind: map[string]any{"url": u}})
+		}
+		input["assets"] = assets
+	}
+	if in.FirstComment != "" || len(in.Thread) > 0 {
+		svc, err := c.channelService(ctx, connID, in.ChannelID)
+		if err != nil {
+			return nil, err
+		}
+		key := svc
+		if k, ok := metadataKeys[svc]; ok {
+			key = k
+		}
+		md := map[string]any{}
+		if in.FirstComment != "" {
+			md["firstComment"] = in.FirstComment
+		}
+		if len(in.Thread) > 0 {
+			items := make([]map[string]any, 0, len(in.Thread))
+			for _, t := range in.Thread {
+				items = append(items, map[string]any{"text": t})
+			}
+			md["thread"] = items
+		}
+		input["metadata"] = map[string]any{key: md}
+	}
+	return input, nil
+}
+
+func (c *Client) channelService(ctx context.Context, connID uuid.UUID, channelID string) (string, error) {
+	chs, err := c.Channels(ctx, connID)
+	if err != nil {
+		return "", err
+	}
+	for _, ch := range chs {
+		if ch.ID == channelID {
+			return ch.Service, nil
+		}
+	}
+	return "", fmt.Errorf("buffer: unknown channel %q", channelID)
+}
+
+// DailyPostingLimits returns today's posting limit status for every unlocked channel.
+func (c *Client) DailyPostingLimits(ctx context.Context, connID uuid.UUID) (map[string]Limit, error) {
+	chs, err := c.Channels(ctx, connID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, ch := range chs {
+		if !ch.Locked {
+			ids = append(ids, ch.ID)
+		}
+	}
+	limits := map[string]Limit{}
+	if len(ids) == 0 {
+		return limits, nil
+	}
+	var out struct {
+		DailyPostingLimits []struct {
+			ChannelID       string
+			IsAtLimit       bool
+			Limit           *int
+			Scheduled, Sent int
+		}
+	}
+	if err := c.Do(ctx, connID, qDailyPostingLimits, map[string]any{"channelIds": ids}, &out); err != nil {
+		return nil, err
+	}
+	for _, l := range out.DailyPostingLimits {
+		limits[l.ChannelID] = Limit{IsAtLimit: l.IsAtLimit, Limit: l.Limit, Scheduled: l.Scheduled, Sent: l.Sent}
+	}
+	return limits, nil
+}

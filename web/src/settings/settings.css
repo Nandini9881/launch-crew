@@ -1,0 +1,36 @@
+.settings-title {
+  margin-block: var(--space-md) var(--space-ms);
+  font-family: var(--font-display);
+  font-size: var(--type-heading-size);
+  font-weight: var(--type-heading-weight);
+  line-height: var(--type-heading-leading);
+}
+
+.settings-list {
+  display: grid;
+  gap: var(--space-xs);
+  margin-block: var(--space-ms);
+  padding-inline-start: var(--space-md);
+}
+
+.settings-actions {
+  display: grid;
+  gap: var(--space-sm);
+  margin-block-start: var(--space-md);
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-small-size);
+}
+
+.settings-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin-block-start: var(--space-lg);
+  color: var(--color-text-muted);
+  font-size: var(--type-small-size);
+}

@@ -1,0 +1,21 @@
+{
+  "url": "https://api.github.com/repos/acme/rocket/compare/v1.1.0...v1.2.0",
+  "html_url": "https://github.com/acme/rocket/compare/v1.1.0...v1.2.0",
+  "status": "ahead",
+  "ahead_by": 7,
+  "behind_by": 0,
+  "total_commits": 7,
+  "base_commit": {
+    "sha": "b000000000000000000000000000000000000110",
+    "commit": {"message": "Release v1.1.0"}
+  },
+  "commits": [
+    {"sha": "c000000000000000000000000000000000000101", "commit": {"message": "Split-pane resize with keyboard (#101)\n\nAdds ctrl+arrow resizing."}},
+    {"sha": "c000000000000000000000000000000000000102", "commit": {"message": "Fix crash on empty config (#102)"}},
+    {"sha": "c000000000000000000000000000000000000103", "commit": {"message": "Bump golang.org/x/net from 0.30.0 to 0.31.0 (#103)"}},
+    {"sha": "c000000000000000000000000000000000000104", "commit": {"message": "Docs: fix typo in README (#104)"}},
+    {"sha": "c000000000000000000000000000000000000105", "commit": {"message": "Add tracing exporter (#105)"}},
+    {"sha": "c000000000000000000000000000000000000106", "commit": {"message": "CI: cache Go modules (#106)"}},
+    {"sha": "c000000000000000000000000000000000000107", "commit": {"message": "Prepare v1.2.0"}}
+  ]
+}

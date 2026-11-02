@@ -1,0 +1,545 @@
+package buffer_test
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/shubham-tomar/launchcrew/internal/buffer"
+	"github.com/shubham-tomar/launchcrew/internal/crypto"
+	"github.com/shubham-tomar/launchcrew/internal/db"
+	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
+	"github.com/shubham-tomar/launchcrew/internal/testfakes/bufferfake"
+)
+
+// clock is a fake clock whose Sleep advances time instantly.
+type clock struct {
+	mu    sync.Mutex
+	t     time.Time
+	slept []time.Duration
+}
+
+func (c *clock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *clock) Sleep(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+	c.slept = append(c.slept, d)
+}
+
+func (c *clock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+func (c *clock) Slept() []time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]time.Duration(nil), c.slept...)
+}
+
+type env struct {
+	c      *buffer.Client
+	q      *sqlc.Queries
+	pool   *pgxpool.Pool
+	kr     *crypto.Keyring
+	fake   *bufferfake.Fake
+	clock  *clock
+	connID uuid.UUID
+	userID uuid.UUID
+}
+
+// setup seeds a connection holding access token "old" and refresh token
+// "refresh-0" that expires at now+expiresIn.
+func setup(t *testing.T, expiresIn time.Duration) *env {
+	t.Helper()
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	pool, err := db.Open(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	kr, err := crypto.ParseKeyring("k1:" + base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := sqlc.New(pool)
+	clk := &clock{t: time.Now().UTC().Truncate(time.Microsecond)}
+	user, err := q.CreateUser(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, keyID, _ := kr.Encrypt([]byte("old"))
+	refresh, _, _ := kr.Encrypt([]byte("refresh-0"))
+	conn, err := q.UpsertBufferConnection(ctx, sqlc.UpsertBufferConnectionParams{
+		UserID: user.ID, BufferAccountID: "acct-" + uuid.NewString(),
+		OrgID:          pgtype.Text{String: "org-1", Valid: true},
+		AccessTokenEnc: access, RefreshTokenEnc: refresh, KeyID: keyID,
+		ExpiresAt: pgtype.Timestamptz{Time: clk.Now().Add(expiresIn), Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := bufferfake.New(t, conn.BufferAccountID, "org-1")
+	fake.Handle("Ping", map[string]any{"account": map[string]any{"id": "a"}})
+	c := buffer.New(&http.Client{Timeout: 5 * time.Second}, q, kr,
+		buffer.WithEndpoints(fake.APIURL(), fake.TokenURL()),
+		buffer.WithCredentials("cid", "secret"),
+		buffer.WithClock(clk.Now, clk.Sleep),
+	)
+	return &env{c, q, pool, kr, fake, clk, conn.ID, user.ID}
+}
+
+const ping = `query Ping { account { id } }`
+
+func (e *env) conn(t *testing.T) sqlc.BufferConnection {
+	t.Helper()
+	conn, err := e.q.GetBufferConnection(context.Background(), e.connID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return conn
+}
+
+func (e *env) decrypt(t *testing.T, b []byte) string {
+	t.Helper()
+	p, err := e.kr.Decrypt(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(p)
+}
+
+var channelsData = map[string]any{"channels": []map[string]any{{
+	"id": "ch1", "name": "octo", "displayName": "Octo Cat", "service": "bluesky",
+	"avatar": "https://img/a.png", "isLocked": false, "isQueuePaused": true, "isDisconnected": false,
+}}}
+
+func TestRetryAfterSleepsOnce(t *testing.T) {
+	e := setup(t, time.Hour)
+	ctx := context.Background()
+	e.fake.Script("GetChannels",
+		bufferfake.Response{Status: 429, Header: map[string]string{"Retry-After": "1"}},
+		bufferfake.Response{Data: channelsData},
+	)
+	start := e.clock.Now()
+	chs, err := e.c.Channels(ctx, e.connID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chs) != 1 {
+		t.Fatalf("channels = %v", chs)
+	}
+	if n := e.fake.Count("GetChannels"); n != 2 {
+		t.Fatalf("requests = %d, want 2", n)
+	}
+	if el := e.clock.Now().Sub(start); el < time.Second {
+		t.Fatalf("elapsed %v, want >= 1s", el)
+	}
+	if s := e.clock.Slept(); len(s) != 1 || s[0] != time.Second {
+		t.Fatalf("slept %v, want [1s]", s)
+	}
+
+	// A second 429 after the wait gives up and names the wait.
+	e.fake.Script("Ping",
+		bufferfake.Response{Status: 429, Header: map[string]string{"Retry-After": "7"}},
+		bufferfake.Response{Status: 429, Header: map[string]string{"Retry-After": "7"}},
+	)
+	err = e.c.Do(ctx, e.connID, ping, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "7s") {
+		t.Fatalf("err = %v, want one naming 7s", err)
+	}
+	if n := e.fake.Count("Ping"); n != 2 {
+		t.Fatalf("ping requests = %d, want 2", n)
+	}
+
+	// A Retry-After beyond the 15-minute cap fails at once without sleeping.
+	e.fake.Script("Ping", bufferfake.Response{Status: 429, Header: map[string]string{"Retry-After": "3600"}})
+	err = e.c.Do(ctx, e.connID, ping, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "1h0m0s") {
+		t.Fatalf("err = %v, want one naming 1h0m0s", err)
+	}
+	if n := e.fake.Count("Ping"); n != 3 {
+		t.Fatalf("ping requests = %d, want 3", n)
+	}
+	if s := e.clock.Slept(); len(s) != 2 {
+		t.Fatalf("slept %v, want no new wait", s)
+	}
+}
+
+func TestInvalidGrantMarksNeedsReconnect(t *testing.T) {
+	e := setup(t, -time.Minute)
+	before := e.conn(t)
+	e.fake.SetRefresh(bufferfake.RefreshInvalidGrant)
+	err := e.c.Do(context.Background(), e.connID, ping, nil, nil)
+	if !errors.Is(err, buffer.ErrNeedsReconnect) {
+		t.Fatalf("err = %v, want ErrNeedsReconnect", err)
+	}
+	after := e.conn(t)
+	if after.Status != "needs_reconnect" {
+		t.Fatalf("status = %q", after.Status)
+	}
+	if string(after.AccessTokenEnc) != string(before.AccessTokenEnc) || string(after.RefreshTokenEnc) != string(before.RefreshTokenEnc) {
+		t.Fatal("tokens were overwritten")
+	}
+	if n := len(e.fake.Requests()); n != 0 {
+		t.Fatalf("graphql requests = %d, want 0", n)
+	}
+	// Later calls fail fast without touching Buffer.
+	if err := e.c.Do(context.Background(), e.connID, ping, nil, nil); !errors.Is(err, buffer.ErrNeedsReconnect) {
+		t.Fatalf("second err = %v", err)
+	}
+	if n := len(e.fake.RefreshForms()); n != 1 {
+		t.Fatalf("refresh calls = %d, want 1", n)
+	}
+}
+
+func TestConcurrentInvalidGrantRefreshesOnce(t *testing.T) {
+	e := setup(t, -time.Minute)
+	before := e.conn(t)
+	e.fake.SetRefresh(bufferfake.RefreshInvalidGrant)
+	e.fake.OnToken(func() { time.Sleep(100 * time.Millisecond) })
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	start := make(chan struct{})
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs[i] = e.c.Do(context.Background(), e.connID, ping, nil, nil)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i, err := range errs {
+		if !errors.Is(err, buffer.ErrNeedsReconnect) {
+			t.Fatalf("call %d err = %v, want ErrNeedsReconnect", i, err)
+		}
+	}
+	if n := len(e.fake.RefreshForms()); n != 1 {
+		t.Fatalf("refresh calls = %d, want 1", n)
+	}
+	if n := len(e.fake.Requests()); n != 0 {
+		t.Fatalf("graphql requests = %d, want 0", n)
+	}
+	after := e.conn(t)
+	if after.Status != "needs_reconnect" {
+		t.Fatalf("status = %q", after.Status)
+	}
+	if string(after.AccessTokenEnc) != string(before.AccessTokenEnc) || string(after.RefreshTokenEnc) != string(before.RefreshTokenEnc) {
+		t.Fatal("tokens were overwritten")
+	}
+}
+
+func TestTransportErrorKeepsStatus(t *testing.T) {
+	e := setup(t, -time.Minute)
+	e.fake.SetRefresh(bufferfake.RefreshDrop)
+	err := e.c.Do(context.Background(), e.connID, ping, nil, nil)
+	if err == nil || errors.Is(err, buffer.ErrNeedsReconnect) {
+		t.Fatalf("err = %v, want a transport error", err)
+	}
+	conn := e.conn(t)
+	if conn.Status != "ok" {
+		t.Fatalf("status = %q, want ok", conn.Status)
+	}
+	if got := e.decrypt(t, conn.RefreshTokenEnc); got != "refresh-0" {
+		t.Fatalf("refresh token = %q", got)
+	}
+}
+
+func TestConcurrentRefreshOnce(t *testing.T) {
+	e := setup(t, -time.Minute)
+	e.fake.OnToken(func() { time.Sleep(100 * time.Millisecond) })
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	start := make(chan struct{})
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs[i] = e.c.Do(context.Background(), e.connID, ping, nil, nil)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(e.fake.RefreshForms()); n != 1 {
+		t.Fatalf("refresh calls = %d, want 1", n)
+	}
+	reqs := e.fake.Requests()
+	if len(reqs) != 2 {
+		t.Fatalf("graphql requests = %d, want 2", len(reqs))
+	}
+	for _, r := range reqs {
+		if r.Auth != "Bearer access-1" {
+			t.Fatalf("auth = %q, want the refreshed token", r.Auth)
+		}
+	}
+	if got := e.decrypt(t, e.conn(t).AccessTokenEnc); got != "access-1" {
+		t.Fatalf("stored access = %q", got)
+	}
+}
+
+func TestNewRefreshPersistedBeforeNextCall(t *testing.T) {
+	e := setup(t, time.Hour)
+	e.fake.RejectToken("old")
+	var mu sync.Mutex
+	var seen []string
+	e.fake.OnRequest(func(r bufferfake.Request) {
+		// Runs on the fake's goroutine: record, don't t.Fatal.
+		conn, err := e.q.GetBufferConnection(context.Background(), e.connID)
+		access, _ := e.kr.Decrypt(conn.AccessTokenEnc)
+		refresh, _ := e.kr.Decrypt(conn.RefreshTokenEnc)
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, fmt.Sprintf("%s db=%s,%s err=%v", r.Auth, access, refresh, err))
+	})
+	if err := e.c.Do(context.Background(), e.connID, ping, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		"Bearer old db=old,refresh-0 err=<nil>",
+		"Bearer access-1 db=access-1,refresh-1 err=<nil>",
+	}
+	if strings.Join(seen, "|") != strings.Join(want, "|") {
+		t.Fatalf("requests saw %q, want %q", seen, want)
+	}
+	if f := e.fake.RefreshForms(); len(f) != 1 || f[0].Get("refresh_token") != "refresh-0" || f[0].Get("client_secret") != "secret" {
+		t.Fatalf("refresh forms = %v", f)
+	}
+	if exp := e.conn(t).ExpiresAt.Time; !exp.Equal(e.clock.Now().Add(time.Hour)) {
+		t.Fatalf("expires_at = %v, want now+1h", exp)
+	}
+}
+
+func TestBudgetQueuesAtEightyPercent(t *testing.T) {
+	e := setup(t, time.Hour)
+	ctx := context.Background()
+	var mu sync.Mutex
+	var at []time.Time
+	e.fake.OnRequest(func(bufferfake.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		at = append(at, e.clock.Now())
+	})
+	times := func() []time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]time.Time(nil), at...)
+	}
+	e.fake.Script("Ping", bufferfake.Response{
+		Data: map[string]any{"account": map[string]any{"id": "a"}},
+		Header: map[string]string{
+			"RateLimit":        `"100-in-15min";r=19;t=600, "500-in-1day";r=400;t=80000`,
+			"RateLimit-Policy": `"100-in-15min";q=100;w=900;pk=:abc:, "500-in-1day";q=500;w=86400;pk=:abc:`,
+		},
+	})
+	if err := e.c.Do(ctx, e.connID, ping, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.clock.Slept(); len(s) != 0 {
+		t.Fatalf("first call slept %v", s)
+	}
+	conn := e.conn(t)
+	if conn.RateRemaining.Int32 != 19 || !conn.RateResetAt.Time.Equal(times()[0].Add(600*time.Second)) {
+		t.Fatalf("rate = %v reset %v", conn.RateRemaining, conn.RateResetAt.Time)
+	}
+	if err := e.c.Do(ctx, e.connID, ping, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.clock.Slept(); len(s) != 1 || s[0] != 600*time.Second {
+		t.Fatalf("slept %v, want [10m0s]", s)
+	}
+	if at := times(); len(at) != 2 || at[1].Before(at[0].Add(600*time.Second)) {
+		t.Fatalf("second call at %v, want after reset", at)
+	}
+
+	// A reset further out than the 15-minute cap fails instead of sleeping.
+	e.fake.Script("Ping", bufferfake.Response{
+		Data:   map[string]any{"account": map[string]any{"id": "a"}},
+		Header: map[string]string{"RateLimit": `"100-in-15min";r=5;t=3600`, "RateLimit-Policy": `"100-in-15min";q=100;w=900`},
+	})
+	if err := e.c.Do(ctx, e.connID, ping, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.c.Do(ctx, e.connID, ping, nil, nil); err == nil || !strings.Contains(err.Error(), "1h0m0s") {
+		t.Fatalf("err = %v, want one naming 1h0m0s", err)
+	}
+	if n := e.fake.Count("Ping"); n != 3 {
+		t.Fatalf("ping requests = %d, want 3", n)
+	}
+	e.clock.Advance(time.Hour)
+
+	// 20 of 100 is not below the 20% line, so no wait.
+	e.fake.Script("Ping", bufferfake.Response{
+		Data:   map[string]any{"account": map[string]any{"id": "a"}},
+		Header: map[string]string{"RateLimit": `"100-in-15min";r=20;t=600`, "RateLimit-Policy": `"100-in-15min";q=100;w=900`},
+	})
+	for range 2 {
+		if err := e.c.Do(ctx, e.connID, ping, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s := e.clock.Slept(); len(s) != 1 {
+		t.Fatalf("slept %v, want no new wait", s)
+	}
+}
+
+func TestLimitReachedRetriesAsDraft(t *testing.T) {
+	e := setup(t, time.Hour)
+	ctx := context.Background()
+	limit := bufferfake.Response{Data: map[string]any{"createPost": map[string]any{
+		"__typename": "LimitReachedError", "message": "You've reached your queue limit",
+	}}}
+	e.fake.Script("CreatePost", limit, bufferfake.Response{Data: map[string]any{"createPost": map[string]any{
+		"__typename": "PostActionSuccess", "post": map[string]any{"id": "p1", "status": "draft"},
+	}}})
+	res, err := e.c.CreatePost(ctx, e.connID, buffer.CreatePostInput{ChannelID: "ch1", Text: "hi", Mode: "addToQueue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PostID != "p1" || !res.SavedAsDraft || res.Note != "your queue is full, saved as a draft instead" {
+		t.Fatalf("result = %+v", res)
+	}
+	reqs := e.fake.Requests()
+	if len(reqs) != 2 {
+		t.Fatalf("requests = %d, want 2", len(reqs))
+	}
+	first := reqs[0].Vars["input"].(map[string]any)
+	second := reqs[1].Vars["input"].(map[string]any)
+	if first["saveToDraft"] == true || second["saveToDraft"] != true {
+		t.Fatalf("saveToDraft first=%v second=%v", first["saveToDraft"], second["saveToDraft"])
+	}
+	if second["text"] != "hi" || second["channelId"] != "ch1" || second["mode"] != "addToQueue" || second["schedulingType"] != "automatic" {
+		t.Fatalf("second input = %v", second)
+	}
+
+	// If the draft is refused too, the typed error comes back.
+	e.fake.Script("CreatePost", limit, limit)
+	_, err = e.c.CreatePost(ctx, e.connID, buffer.CreatePostInput{ChannelID: "ch1", Text: "hi", Mode: "addToQueue"})
+	var lre *buffer.LimitReachedError
+	if !errors.As(err, &lre) || lre.Message != "You've reached your queue limit" {
+		t.Fatalf("err = %v, want LimitReachedError", err)
+	}
+}
+
+func TestChannelsCachedForOneHour(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	e.fake.Handle("GetChannels", channelsData)
+	want := buffer.Channel{ID: "ch1", Name: "Octo Cat", Service: "bluesky", Avatar: "https://img/a.png", Paused: true, Connected: true}
+	for range 2 {
+		chs, err := e.c.Channels(ctx, e.connID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(chs) != 1 || chs[0] != want {
+			t.Fatalf("channels = %+v", chs)
+		}
+	}
+	if n := e.fake.Count("GetChannels"); n != 1 {
+		t.Fatalf("requests = %d, want 1", n)
+	}
+	if v := e.fake.Requests()[0].Vars["organizationId"]; v != "org-1" {
+		t.Fatalf("organizationId = %v", v)
+	}
+	e.clock.Advance(61 * time.Minute)
+	if _, err := e.c.Channels(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetChannels"); n != 2 {
+		t.Fatalf("requests after 61m = %d, want 2", n)
+	}
+}
+
+func TestAuditRowPerCall(t *testing.T) {
+	e := setup(t, time.Hour)
+	ctx := context.Background()
+	since := pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}
+	count := func() int64 {
+		n, err := e.q.CountBufferCallsSince(ctx, sqlc.CountBufferCallsSinceParams{ConnectionID: e.connID, At: since})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(); n != 0 {
+		t.Fatalf("start count = %d", n)
+	}
+	launch, err := e.q.CreateLaunch(ctx, sqlc.CreateLaunchParams{
+		OwnerUserID: e.userID, Source: "manual", HeadlineChanges: []byte("[]"), Roles: []byte("[]"),
+		WindowMinutes: 90, CrewCap: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.Script("Ping", bufferfake.Response{
+		Data:   map[string]any{"account": map[string]any{"id": "a"}},
+		Header: map[string]string{"RateLimit": `"100-in-15min";r=88;t=600`},
+	})
+	if err := e.c.Do(buffer.WithLaunch(ctx, launch.ID), e.connID, ping, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("count = %d, want 1", n)
+	}
+	if err := e.c.Do(ctx, e.connID, ping, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 2 {
+		t.Fatalf("count = %d, want 2", n)
+	}
+	rows, err := e.pool.Query(ctx, `SELECT launch_id, op, status, request_id, rate_remaining FROM buffer_calls WHERE connection_id = $1 ORDER BY id`, e.connID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var c sqlc.BufferCall
+		if err := rows.Scan(&c.LaunchID, &c.Op, &c.Status, &c.RequestID, &c.RateRemaining); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, strings.Join([]string{
+			map[bool]string{true: "launch", false: "-"}[c.LaunchID.Valid && c.LaunchID.UUID == launch.ID],
+			c.Op, http.StatusText(int(c.Status)), c.RequestID.String,
+			map[bool]string{true: "88", false: "-"}[c.RateRemaining.Valid && c.RateRemaining.Int32 == 88],
+		}, " "))
+	}
+	want := []string{"launch Ping OK req-1 88", "- Ping OK req-2 -"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("rows = %q, want %q", got, want)
+	}
+}

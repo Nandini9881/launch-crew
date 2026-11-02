@@ -1,0 +1,8 @@
+[
+ "Add a retry wrapper around the release lookup so that transient network failures no longer abort the whole announcement flow for users with large repositories.",
+ "Refactor the draft scheduler to read channel limits from a single table, which removes three duplicated constants and makes it easier to add a new network later on.",
+ "Fix the card renderer so that long project names wrap correctly instead of overflowing the frame, and add a regression test covering names longer than sixty characters.",
+ "Update the onboarding flow to explain which permissions are requested from Buffer and why, because several early testers were unsure what the connection would be allowed to do.",
+ "Remove the unused feature flag for the old queue and delete the migration helpers that only existed to support it. This should not change any behaviour for existing accounts.",
+ "Document the environment variables needed to run the API locally, including the optional ones, and describe how the fake services are wired up for the test suite."
+]

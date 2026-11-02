@@ -1,0 +1,23 @@
+{
+  "extends": "stylelint-config-standard",
+  "ignoreFiles": ["src/styles/tokens.css"],
+  "rules": {
+    "declaration-property-value-allowed-list": {
+      "/^(color|background-color|background|border-color|border|outline-color|border-radius|font-family|font-size|padding|margin|gap)$/": [
+        "/^var\\(--/",
+        "transparent",
+        "inherit",
+        "/^currentcolor$/i",
+        "none",
+        "0",
+        "auto",
+        "/^calc\\(/",
+        "/^min\\(/",
+        "/^max\\(/",
+        "/^clamp\\(/",
+        "/^color-mix\\(/",
+        "/^env\\(/"
+      ]
+    }
+  }
+}

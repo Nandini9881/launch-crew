@@ -1,0 +1,110 @@
+{
+  "project": "tabnote",
+  "version": "v1.0",
+  "notes": "Export to Markdown and offline sync.",
+  "prs": [
+    {
+      "number": 101,
+      "title": "Export notes to Markdown",
+      "body": "Export a single note or the whole notebook.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 101,
+      "author_login": "dev101"
+    },
+    {
+      "number": 102,
+      "title": "Work offline and sync when back online",
+      "body": "Edits queue locally and merge on reconnect.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 102,
+      "author_login": "dev102"
+    },
+    {
+      "number": 103,
+      "title": "Bump deps",
+      "body": "Dependabot batch.",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 103,
+      "author_login": "dev103"
+    },
+    {
+      "number": 104,
+      "title": "Fix typo in error message",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 104,
+      "author_login": "dev104"
+    },
+    {
+      "number": 105,
+      "title": "Refactor storage layer into separate package",
+      "body": "No user-visible change.",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 105,
+      "author_login": "dev105"
+    },
+    {
+      "number": 106,
+      "title": "CI: run tests on arm64",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 106,
+      "author_login": "dev106"
+    },
+    {
+      "number": 107,
+      "title": "Update copyright year",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 107,
+      "author_login": "dev107"
+    },
+    {
+      "number": 108,
+      "title": "Bump TypeScript to 5.6",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 108,
+      "author_login": "dev108"
+    },
+    {
+      "number": 109,
+      "title": "Tidy lint config",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 109,
+      "author_login": "dev109"
+    }
+  ],
+  "headline_prs": [
+    101,
+    102
+  ],
+  "chore_prs": [
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109
+  ]
+}

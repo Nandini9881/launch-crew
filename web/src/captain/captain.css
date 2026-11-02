@@ -1,0 +1,276 @@
+.cap-skip {
+  position: absolute;
+  inset-inline-start: var(--space-md);
+  inset-block-start: calc(-1 * var(--space-3xl));
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+.cap-skip:focus {
+  inset-block-start: var(--space-sm);
+  z-index: 1;
+}
+
+.cap-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  inline-size: min(100%, 70rem);
+  margin-inline: auto;
+  padding-inline: clamp(var(--space-md), 5vw, var(--space-lg));
+  padding-block: var(--space-md);
+  border-block-end: 1px solid var(--color-hairline);
+  box-sizing: border-box;
+}
+
+.cap-brand {
+  margin-inline-end: auto;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.cap-nav {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.cap-nav a,
+.cap-account summary {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.cap-account {
+  position: relative;
+}
+
+.cap-account-menu {
+  position: absolute;
+  inset-inline-end: 0;
+  z-index: 1;
+  display: grid;
+  min-inline-size: 10rem;
+  padding: var(--space-sm);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--color-hairline);
+  border-radius: var(--rounded-md);
+  background-color: var(--color-surface);
+}
+
+.cap-account-menu a {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding-inline: var(--space-sm);
+  color: var(--color-text);
+}
+
+.cap-title {
+  margin-block: var(--space-md);
+  font-family: var(--font-display);
+  font-size: var(--type-heading-size);
+  font-weight: var(--type-heading-weight);
+  line-height: var(--type-heading-leading);
+}
+
+.cap-section {
+  margin-block-end: var(--space-xl);
+}
+
+.cap-section h2 {
+  margin-block: 0 var(--space-sm);
+  font-family: var(--font-display);
+  font-size: var(--type-draft-size);
+}
+
+.cap-grid {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+@container (min-width: 52rem) {
+  .cap-grid {
+    grid-template-columns: 7fr 5fr;
+  }
+}
+
+.cap-col {
+  min-inline-size: 0;
+}
+
+.cap-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cap-muted {
+  color: var(--color-text-muted);
+  font-size: var(--type-small-size);
+}
+
+.cap-mono {
+  padding-inline: var(--space-xs);
+  border-radius: var(--rounded-sm);
+  background-color: var(--color-tint);
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+}
+
+.cap-error {
+  color: var(--color-error);
+}
+
+.cap-dead {
+  margin-block-end: var(--space-md);
+}
+
+/* Muted grey drops below 4.5:1 on the error tint; use the text colour there. */
+.cap-dead .cap-muted {
+  color: var(--color-text);
+}
+
+.cap-pr,
+.cap-crew-row,
+.cap-launch,
+.cap-repo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-md);
+  padding-block: var(--space-ms);
+  border-block-end: 1px solid var(--color-hairline);
+}
+
+.cap-launch {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.cap-post {
+  padding-block: var(--space-ms);
+  border-block-end: 1px solid var(--color-hairline);
+}
+
+.cap-post-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.cap-post-text {
+  margin-block: var(--space-xs) 0;
+  font-size: var(--type-body-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere; /* long links must not scroll the page sideways */
+}
+
+.cap-chores summary {
+  min-block-size: 44px;
+  cursor: pointer;
+}
+
+.cap-state {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
+}
+
+.cap-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-block-size: 44px;
+}
+
+.cap-form {
+  display: grid;
+  gap: var(--space-md);
+  max-inline-size: 36rem;
+}
+
+.cap-field {
+  display: grid;
+  gap: var(--space-xs);
+  color: var(--color-text-muted);
+  font-size: var(--type-small-size);
+}
+
+.cap-field input,
+.cap-field textarea,
+.cap-addlink input {
+  min-block-size: 44px;
+  padding-inline: var(--space-ms);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--color-hairline);
+  border-radius: var(--rounded-sm);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--type-body-size);
+}
+
+.cap-field textarea {
+  padding-block: var(--space-sm);
+}
+
+.cap-fieldset {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.cap-role {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.cap-addlink {
+  display: grid;
+  gap: var(--space-sm);
+  margin-block-start: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: var(--type-small-size);
+}
+
+.cap-addlink input {
+  inline-size: 100%;
+  font-family: var(--font-mono);
+}
+
+.cap-actions,
+.cap-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-block: var(--space-md);
+}
+
+.cap-empty {
+  padding-block: var(--space-xl);
+}
+
+@container (width < 30rem) {
+  .cap-role {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cap-err {
+  color: var(--color-error);
+}
+
+.cap-post-note {
+  margin-block: var(--space-xs) 0;
+}

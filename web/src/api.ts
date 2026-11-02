@@ -1,0 +1,294 @@
+export type View = {
+  launch: {
+    id: string
+    title: string
+    summary: string
+    project: string
+    version: string
+    releaseUrl: string
+    status: string
+    launchAt: string | null
+    windowMinutes: number
+    source: string
+    shortUrl: string
+  }
+  member: { id: string; name: string; role: string; roleHint: string; state: string; verified: boolean }
+  card: { url: string; alt: string } | null
+  preview: string
+  verified: boolean
+  foreign: boolean
+  needsVerify: boolean
+  copyText: string
+}
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+export type Channel = {
+  id: string
+  name: string
+  service: string
+  avatar: string
+  eligible: boolean
+  reason: string
+  checked: boolean
+}
+
+export type DraftView = {
+  id: string
+  channelId: string
+  network: string
+  text: string
+  thread: string[]
+  firstComment: string
+  fromModel: boolean
+  edited: boolean
+  flagged: boolean
+  status: string
+  bufferPostId: string
+}
+
+export type Timing = 'window' | 'queue' | 'draft'
+
+export type VoiceProfile = {
+  sentenceLength: string
+  case: string
+  hashtags: string
+  emoji: string
+  hook: string
+  signOff: string
+  link: string
+  extra: string
+}
+
+export type ApproveView = {
+  memberId: string
+  channels: Channel[]
+  drafts: DraftView[]
+  voice: Partial<VoiceProfile>
+  voiceLine: string
+  timing: Timing[]
+  closed: boolean
+  needsReconnect: boolean
+  voicedReady: boolean
+}
+
+export type Selection = { channelId: string; text: string; timing: Timing; assetUrl: string }
+export type Outcome = { channelId: string; service: string; status: 'queued' | 'draft' | 'failed'; when: string | null; note: string; postId?: string }
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(path, init)
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(res.status, body.error ?? 'error', body.message ?? res.statusText)
+  return body as T
+}
+
+export function getInvite(token: string, opts: { foreign?: boolean } = {}) {
+  const q = opts.foreign ? '?foreign=1' : ''
+  return call<View>(`/api/s/${encodeURIComponent(token)}${q}`)
+}
+
+export function share(token: string) {
+  return call<{ text: string }>(`/api/s/${encodeURIComponent(token)}/share`, { method: 'POST' })
+}
+
+function crew<T>(id: string, token: string, path: string, method: string, body?: unknown) {
+  const headers: Record<string, string> = { 'X-Crew-Token': token }
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  return call<T>(`/api/crew/${encodeURIComponent(id)}${path}`, {
+    method,
+    headers,
+    credentials: 'same-origin',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
+export const connect = (id: string, token: string) => crew<ApproveView>(id, token, '/connect', 'POST')
+
+export const getDrafts = (id: string, token: string) =>
+  crew<{ drafts: DraftView[]; voicedReady: boolean }>(id, token, '/drafts', 'GET')
+
+export const saveDraft = (id: string, token: string, draftId: string, text: string) =>
+  crew<unknown>(id, token, `/drafts/${encodeURIComponent(draftId)}`, 'PUT', { text })
+
+export const post = (id: string, token: string, selections: Selection[]) =>
+  crew<{ outcomes: Outcome[] }>(id, token, '/post', 'POST', { selections })
+
+export const disconnect = (id: string, token: string) => crew<unknown>(id, token, '/disconnect', 'POST')
+
+export const updateVoice = (id: string, token: string, profile: Partial<VoiceProfile>) =>
+  crew<{ voiceLine: string }>(id, token, '/voice', 'PUT', profile)
+
+export type BoardRow = { name: string; role: string; state: string; when: string | null }
+export type BoardView = { rows: BoardRow[]; in: number; total: number }
+
+export const board = (id: string, token: string) => crew<BoardView>(id, token, '/board', 'GET')
+
+export const remember = (id: string, token: string, value: boolean) =>
+  crew<unknown>(id, token, '/remember', 'POST', { remember: value })
+
+export type Role = { name: string; hint: string }
+export type LaunchView = {
+  title: string
+  summary: string
+  roles: Role[]
+  card: { url: string; alt: string } | null
+  shortUrl: string
+  openCount: number
+}
+
+export const openLink = (openToken: string) => call<LaunchView>(`/api/l/${encodeURIComponent(openToken)}`)
+
+export const showInfo = (openToken: string) =>
+  call<{ title: string; shortUrl: string }>(`/api/l/${encodeURIComponent(openToken)}/show`)
+
+export const chooseRole = (
+  openToken: string,
+  body: { role: string; hint: string; talkTitle: string; other: boolean },
+) =>
+  call<{ token: string; memberId: string }>(`/api/l/${encodeURIComponent(openToken)}/role`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+// Captain API
+export type LaunchSummary = {
+  id: string
+  status: 'draft' | 'launched' | 'closed'
+  source: 'github' | 'manual'
+  title: string
+  releaseTag: string
+  launchAt: string | null
+  windowMinutes: number
+  openCount: number
+  createdAt: string
+}
+
+export type Pr = { prNumber: number; title: string; authorLogin: string; hidden: boolean }
+export type CaptainDraft = {
+  id: string
+  channelId: string
+  channelName: string
+  service: string
+  text: string
+  status: 'draft' | 'sending' | 'queued' | 'failed'
+  bufferPostId: string
+  note: string
+}
+export type CrewRow = {
+  id: string
+  name: string
+  login: string
+  role: string
+  state: string
+  commentFailed: boolean
+  inviteUrl?: string
+}
+export type Check = { id: number; name: string; ok: boolean; fix: string }
+export type DeadLetter = { jobId: number; kind: string; lastError: string; attempts: number }
+
+export type Detail = {
+  id: string
+  status: 'draft' | 'launched' | 'closed'
+  source: 'github' | 'manual'
+  title: string
+  summary: string
+  releaseTag: string
+  releaseUrl: string
+  launchAt: string | null
+  windowMinutes: number
+  crewCap: number
+  openCount: number
+  openUrl: string
+  showUrl: string
+  pngUrl: string
+  roles: Role[]
+  bufferConnected: boolean
+  headlines: Pr[]
+  chores: Pr[]
+  captainDrafts: CaptainDraft[]
+  crew: CrewRow[]
+  checks: Check[]
+  deadLetters: DeadLetter[]
+  counts: { in: number; total: number }
+}
+
+export type NewLaunch = {
+  title: string
+  summary?: string
+  roles?: Role[]
+  heroUrl?: string
+  launchAt?: string
+  windowMinutes?: number
+}
+
+export type Patch = {
+  title?: string
+  summary?: string
+  launchAt?: string
+  windowMinutes?: number
+  crewCap?: number
+  hiddenPrs?: number[]
+  tickedCrew?: string[]
+}
+
+export type Repo = { id: string; fullName: string; enabled: boolean; allowPrerelease: boolean }
+
+const json = (method: string, body?: unknown): RequestInit => ({
+  method,
+  headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+  body: body === undefined ? undefined : JSON.stringify(body),
+})
+
+// A signed-out captain goes through the Buffer sign-in and comes back here.
+export function signIn() {
+  const back = location.pathname + location.search
+  location.assign(`/auth/buffer/start?return_to=${encodeURIComponent(back)}`)
+}
+
+async function captain<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await call<T>(`/api/captain${path}`, init)
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401 && e.code === 'sign_in') signIn()
+    throw e
+  }
+}
+
+const lid = encodeURIComponent
+
+export const listLaunches = () => captain<LaunchSummary[]>('/launches')
+export const createLaunch = (b: NewLaunch) => captain<Detail>('/launches', json('POST', b))
+export const getLaunch = (id: string) => captain<Detail>(`/launches/${lid(id)}`)
+export const patchLaunch = (id: string, p: Patch) => captain<Detail>(`/launches/${lid(id)}`, json('PATCH', p))
+export const pressLaunch = (id: string) => captain<{ status: string }>(`/launches/${lid(id)}/launch`, json('POST'))
+export const retryJob = (id: string, jobId: number) =>
+  captain<{ status: string }>(`/launches/${lid(id)}/retry/${jobId}`, json('POST'))
+export const listRepos = () => captain<Repo[]>('/repos')
+export const patchRepo = (id: string, p: { enabled?: boolean; allowPrerelease?: boolean }) =>
+  captain<Repo>(`/repos/${lid(id)}`, json('PATCH', p))
+
+export type Me = {
+  signedIn: boolean
+  githubLogins: string[]
+  bufferConnected: boolean
+  optedOut: boolean
+  launches: number
+  crewRows: number
+  supportEmail: string
+}
+
+export const getMe = () => call<Me>('/api/me')
+export const optOutMe = () => call<{ optedOut: boolean }>('/api/me/opt-out', json('POST'))
+// The PR comment footer link carries the invite token, so this works signed out.
+export const optOutWithToken = (token: string) =>
+  call<{ optedOut: boolean }>(`/api/opt-out?token=${encodeURIComponent(token)}`, json('POST'))
+export const deleteMe = () => call<{ deleted: boolean }>('/api/me', json('DELETE'))

@@ -1,0 +1,88 @@
+{
+  "project": "syncd",
+  "version": "v1.0",
+  "notes": "Retries, dry run mode and faster startup.",
+  "prs": [
+    {
+      "number": 101,
+      "title": "Retry failed sync jobs with backoff",
+      "body": "Failed jobs are now retried up to five times with exponential backoff.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 101,
+      "author_login": "dev101"
+    },
+    {
+      "number": 102,
+      "title": "Add --dry-run flag to preview changes",
+      "body": "Prints what would change without touching the target.",
+      "added": 220,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 102,
+      "author_login": "dev102"
+    },
+    {
+      "number": 103,
+      "title": "Bump deps",
+      "body": "Update go modules.",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 103,
+      "author_login": "dev103"
+    },
+    {
+      "number": 104,
+      "title": "Fix typo in README",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 104,
+      "author_login": "dev104"
+    },
+    {
+      "number": 105,
+      "title": "Refactor config loader internals",
+      "body": "No behavior change.",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 105,
+      "author_login": "dev105"
+    },
+    {
+      "number": 106,
+      "title": "CI: pin actions to commit SHAs",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 106,
+      "author_login": "dev106"
+    },
+    {
+      "number": 107,
+      "title": "Bump golangci-lint to 1.60",
+      "body": "",
+      "added": 40,
+      "deleted": 5,
+      "labels": [],
+      "author_id": 107,
+      "author_login": "dev107"
+    }
+  ],
+  "headline_prs": [
+    101,
+    102
+  ],
+  "chore_prs": [
+    103,
+    104,
+    105,
+    106,
+    107
+  ]
+}

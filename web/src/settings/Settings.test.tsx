@@ -1,0 +1,110 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
+import App from '../App'
+import type { Me } from '../api'
+
+afterEach(() => vi.unstubAllGlobals())
+
+const me = (o: Partial<Me> = {}): Me => ({
+  signedIn: true, githubLogins: [], bufferConnected: false, optedOut: false, launches: 0, crewRows: 0, supportEmail: 'help@lc.test', ...o,
+})
+
+function mockApi(m: Me, opts: { deleteFails?: boolean; optOut?: Response } = {}) {
+  const calls: { method: string; url: string }[] = []
+  const json = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    calls.push({ method, url })
+    if (url === '/api/me' && method === 'GET') return json(200, m)
+    if (url === '/api/me' && method === 'DELETE') return opts.deleteFails ? json(500, { error: 'internal' }) : json(200, { deleted: true })
+    if (url.startsWith('/api/me/opt-out') && opts.optOut) return Promise.resolve(opts.optOut)
+    if (url.startsWith('/api/me/opt-out') || url.startsWith('/api/opt-out')) return json(200, { optedOut: true })
+    return json(404, { error: 'not_found' })
+  }))
+  return calls
+}
+
+function visit(path = '/settings') {
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <App />
+    </MemoryRouter>,
+  )
+}
+
+test('settings states render', async () => {
+  // Empty.
+  mockApi(me())
+  visit()
+  expect(await screen.findByText('Nothing stored about you yet.')).toBeInTheDocument()
+})
+
+test('settings states render: stored, opted out, deleted', async () => {
+  const user = userEvent.setup()
+  const calls = mockApi(me({ githubLogins: ['ada'], bufferConnected: true, launches: 1, crewRows: 2 }))
+  visit()
+  expect(await screen.findByText('GitHub: ada')).toBeInTheDocument()
+  expect(screen.queryByText('Nothing stored about you yet.')).toBeNull()
+
+  await user.click(screen.getByRole('button', { name: 'Opt out of all comments' }))
+  expect(await screen.findByText('Opted out. We will never comment on your PRs again.')).toBeInTheDocument()
+  expect(calls).toContainEqual({ method: 'POST', url: '/api/me/opt-out' })
+
+  // Delete needs a second press.
+  await user.click(screen.getByRole('button', { name: 'Delete everything' }))
+  expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+  await user.click(screen.getByRole('button', { name: 'Yes, delete everything' }))
+  expect(await screen.findByText('Deleted. Your tokens and drafts are gone.')).toBeInTheDocument()
+  expect(calls).toContainEqual({ method: 'DELETE', url: '/api/me' })
+})
+
+test('settings states render: delete failure shows the support address as text', async () => {
+  const user = userEvent.setup()
+  mockApi(me({ githubLogins: ['ada'] }), { deleteFails: true })
+  visit()
+  await user.click(await screen.findByRole('button', { name: 'Delete everything' }))
+  await user.click(screen.getByRole('button', { name: 'Yes, delete everything' }))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('We could not delete everything; email us at help@lc.test')
+  expect(screen.queryByRole('link', { name: /help@lc.test/ })).toBeNull()
+})
+
+test('a token holder who is signed out sees only the opt-out action', async () => {
+  const user = userEvent.setup()
+  const calls = mockApi(me({ signedIn: false, supportEmail: '' }))
+  visit('/opt-out?token=abc%2F1')
+  const btn = await screen.findByRole('button', { name: 'Opt out of all comments' })
+  expect(screen.queryByRole('button', { name: 'Delete everything' })).toBeNull()
+  expect(screen.queryByText('Nothing stored about you yet.')).toBeNull()
+  await user.click(btn)
+  expect(await screen.findByText('Opted out. We will never comment on your PRs again.')).toBeInTheDocument()
+  expect(calls).toContainEqual({ method: 'POST', url: '/api/opt-out?token=abc%2F1' })
+})
+
+test('signed out without a token is asked to sign in', async () => {
+  mockApi(me({ signedIn: false }))
+  visit()
+  expect(await screen.findByRole('link', { name: 'Sign in to see what we store' })).toHaveAttribute('href', expect.stringContaining('/auth/buffer/start'))
+})
+
+test('a signed-in visitor with a comment token opts out through the token', async () => {
+  const user = userEvent.setup()
+  const calls = mockApi(me({ githubLogins: ['ada'] }))
+  visit('/settings?token=abc')
+  await user.click(await screen.findByRole('button', { name: 'Opt out of all comments' }))
+  expect(await screen.findByText('Opted out. We will never comment on your PRs again.')).toBeInTheDocument()
+  expect(calls).toContainEqual({ method: 'POST', url: '/api/opt-out?token=abc' })
+  expect(calls.some((c) => c.url === '/api/me/opt-out')).toBe(false)
+})
+
+test('opt-out with no linked GitHub account says so instead of succeeding', async () => {
+  const user = userEvent.setup()
+  mockApi(me({ githubLogins: [], bufferConnected: true }), {
+    optOut: new Response(JSON.stringify({ error: 'no_github' }), { status: 409 }),
+  })
+  visit()
+  await user.click(await screen.findByRole('button', { name: 'Opt out of all comments' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('We found no GitHub account to opt out. Use the link from a PR comment.')
+  expect(screen.queryByText('Opted out. We will never comment on your PRs again.')).toBeNull()
+})
