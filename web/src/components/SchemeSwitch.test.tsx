@@ -39,3 +39,14 @@ test('the stored value is reflected on mount', () => {
   expect(screen.getByLabelText('Dark')).toBeChecked()
   expect(screen.getByLabelText('System')).not.toBeChecked()
 })
+
+test('each segment is an icon with a hidden text label and a tooltip', () => {
+  const { container } = render(<SchemeSwitch />)
+  const labels = [...container.querySelectorAll('.scheme-switch label')]
+  expect(labels.map((l) => l.getAttribute('title'))).toEqual(['System', 'Light', 'Dark'])
+  for (const l of labels) {
+    expect(l.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    expect(l.querySelector('.visually-hidden')).not.toBeNull()
+  }
+  expect(screen.getByRole('radio', { name: 'Dark' })).toBeInTheDocument()
+})

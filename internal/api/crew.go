@@ -156,12 +156,13 @@ func (c *Crew) openLink(w http.ResponseWriter, r *http.Request) {
 
 // showInfo is what the projectable page needs: no open counted, no cap check.
 func (c *Crew) showInfo(w http.ResponseWriter, r *http.Request) {
-	_, title, shortURL, err := crew.SlideFor(r.Context(), c.deps, chi.URLParam(r, "openToken"), clientIP(r))
+	id, title, shortURL, err := crew.SlideFor(r.Context(), c.deps, chi.URLParam(r, "openToken"), clientIP(r))
 	if err != nil {
 		c.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"title": title, "shortUrl": shortURL})
+	logo := crew.SlideLogo(r.Context(), c.deps, id)
+	writeJSON(w, http.StatusOK, map[string]string{"title": title, "shortUrl": shortURL, "qrLogo": logo.Mode, "qrLogoUrl": logo.URL})
 }
 
 // showPNG streams the projectable QR slide, rendered once per launch.
@@ -175,9 +176,9 @@ func (c *Crew) showPNG(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		render := c.deps.RenderSlide
 		if render == nil {
-			render = cards.RenderQRSlide
+			render = cards.RenderQRSlideLogo
 		}
-		b, err := render(title, shortURL)
+		b, err := render(title, shortURL, crew.SlideLogo(r.Context(), c.deps, id))
 		if err != nil {
 			c.fail(w, r, err)
 			return

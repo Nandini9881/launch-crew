@@ -10,14 +10,14 @@ body {
 
 .shell {
   container-type: inline-size;
-  width: min(100%, 36rem);
+  width: min(100%, 40rem);
   margin-inline: auto;
   padding-inline: clamp(var(--space-md), 5vw, var(--space-lg));
   padding-block: var(--space-lg);
 }
 
 .shell[data-width="captain"] {
-  width: min(100%, 70rem);
+  width: min(100%, 80rem);
 }
 
 .visually-hidden {
@@ -30,6 +30,23 @@ body {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+/* Plain links follow the theme at zero specificity, so any rule that styles a link (nav, footer, buttons) still wins. */
+:where(a:not([class]), a:not([class]):visited) {
+  color: var(--color-accent-strong);
+  text-underline-offset: 0.2em;
+}
+
+:where(a:not([class])):hover {
+  color: var(--color-primary-hover);
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+progress {
+  accent-color: var(--color-accent);
 }
 
 :focus-visible {

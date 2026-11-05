@@ -1,36 +1,106 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router'
-import { createLaunch, type NewLaunch as Body, type Role } from '../api'
+import { Link, useNavigate } from 'react-router'
+import { createLaunch, type NewLaunch as Body, type QrLogo, type Role } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
+import Pass from '../components/Pass'
 import Frame from './Frame'
 import { asError, fromLocalInput } from './format'
+import './newlaunch.css'
+
+const DAY = (v: string) => (v ? new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'Date TBD')
 
 const MAX_ROLES = 4
 const MAX_NAME = 24
 
+type Source = 'github' | 'meetup' | 'manual'
+
+const SOURCES: { id: Source; label: string }[] = [
+  { id: 'github', label: 'GitHub release' },
+  { id: 'meetup', label: 'Meetup or talk' },
+  { id: 'manual', label: 'Manual post' },
+]
+
+const MEETUP_ROLES: Role[] = [
+  { name: 'Attendee', hint: 'You were in the room' },
+  { name: 'Speaker', hint: 'You gave a talk' },
+  { name: 'Organiser', hint: 'You ran it' },
+]
+
+const QR_OPTIONS: { id: QrLogo; label: string }[] = [
+  { id: 'plane', label: 'Plane' },
+  { id: 'none', label: 'None' },
+  { id: 'custom', label: 'My own image' },
+]
+
+const sameRoles = (a: Role[], b: Role[]) => a.length === b.length && a.every((r, i) => r.name === b[i].name && r.hint === b[i].hint)
+
+const check = (
+  <svg viewBox="0 0 15 15" aria-hidden="true">
+    <path d="M2 7.5 L6 11 L13 3.5" />
+  </svg>
+)
+
+function GithubExplainer() {
+  return (
+    <section className="nl-explain" aria-label="GitHub release launches">
+      <h2>Launch Crew starts this on its own.</h2>
+      <p>
+        Publish a release in a repo you have added and a draft launch appears here, with the crew found from the merged PRs. You review it
+        and press Launch.
+      </p>
+      <p className="nl-hint">Nothing posts until each person taps approve.</p>
+      <div className="nl-actions">
+        <Link className="btn btn-primary" to="/captain/repos">
+          Add a repo
+        </Link>
+        <Link className="btn btn-secondary" to="/captain/repos">
+          See your repos
+        </Link>
+      </div>
+    </section>
+  )
+}
+
 export default function NewLaunch() {
   const navigate = useNavigate()
+  const [source, setSource] = useState<Source>('meetup')
   const [title, setTitle] = useState('')
   const [summary, setSummary] = useState('')
   const [at, setAt] = useState('')
   const [win, setWin] = useState('90')
-  const [roles, setRoles] = useState<Role[]>([])
+  const [roles, setRoles] = useState<Role[]>(MEETUP_ROLES)
   const [hero, setHero] = useState('')
   const [heroError, setHeroError] = useState<string>()
+  const [qr, setQr] = useState<QrLogo>('plane')
+  const [qrUrl, setQrUrl] = useState('')
+  const [qrError, setQrError] = useState<string>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
 
   const setRole = (i: number, patch: Partial<Role>) =>
     setRoles((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
 
+  // Meetup starts from the three usual roles; a manual post starts bare. Edited roles are kept.
+  function pick(next: Source) {
+    setSource(next)
+    if (next === 'meetup' && roles.length === 0) setRoles(MEETUP_ROLES)
+    if (next === 'manual' && sameRoles(roles, MEETUP_ROLES)) setRoles([])
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault()
     setError(undefined)
     setHeroError(undefined)
+    setQrError(undefined)
     const url = hero.trim()
     if (url && !/^https:\/\/\S+$/i.test(url)) {
       setHeroError('Use an https:// image URL.')
+      return
+    }
+    const logo = qrUrl.trim()
+    if (qr === 'custom' && !/^https:\/\/\S+$/i.test(logo)) {
+      setQrError('Use an https:// image URL.')
       return
     }
     const body: Body = { title: title.trim() }
@@ -44,95 +114,225 @@ export default function NewLaunch() {
       .map((r) => ({ name: r.name.trim().slice(0, MAX_NAME), hint: r.hint.trim() }))
     if (named.length) body.roles = named
     if (url) body.heroUrl = url
+    if (qr === 'none') body.qrLogo = 'none'
+    if (qr === 'custom') {
+      body.qrLogo = 'custom'
+      body.qrLogoUrl = logo
+    }
     setBusy(true)
     try {
       const d = await createLaunch(body)
       navigate(`/captain/launches/${d.id}`)
     } catch (err) {
       const ex = asError(err)
-      if (ex.code === 'hero_refused' || ex.code === 'hero_not_image') setHeroError(ex.message)
+      const refused = ['hero_refused', 'hero_not_image', 'logo_refused', 'logo_not_image'].includes(ex.code)
+      // Which image was refused: a qr_ code is the QR mark; the hero codes mean the hero unless only the QR image was given.
+      const forQr = ex.code.startsWith('qr_') || (refused && qr === 'custom' && logo !== '' && url === '')
+      if (refused && forQr) setQrError(ex.message)
+      else if (refused) setHeroError(ex.message)
       else setError(ex.message)
       setBusy(false)
     }
   }
 
+  const role = roles.find((r) => r.name.trim())?.name.trim() || 'Contributor'
+  const sample = title.trim()
+    ? `${title.trim()}${summary.trim() ? `. ${summary.trim()}` : ''}`
+    : 'Your launch title and summary appear here, in each person’s own words.'
+
   return (
     <Frame>
-      <h1 className="cap-title">New launch</h1>
-      <form className="cap-form" onSubmit={submit}>
-        <label className="cap-field">
-          Title
-          <input type="text" required maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label className="cap-field">
-          Summary
-          <textarea rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
-        </label>
-        <label className="cap-field">
-          Launch time
-          <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
-        </label>
-        <label className="cap-field">
-          Window (minutes)
-          <input type="number" min={1} value={win} onChange={(e) => setWin(e.target.value)} />
-        </label>
-        <fieldset className="cap-fieldset">
-          <legend>Roles</legend>
-          <p className="cap-muted">Leave empty for Attendee, Speaker and Organiser. Up to four.</p>
-          {roles.map((r, i) => (
-            <div key={i} className="cap-role">
-              <label className="cap-field">
-                <span className="visually-hidden">Role {i + 1} name</span>
+      <div className="nl-top">
+        <Link className="nl-back" to="/captain">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M10 3.5 L5.5 8 L10 12.5" />
+          </svg>
+          Launches
+        </Link>
+        <h1 className="nl-title">New launch</h1>
+      </div>
+      <fieldset className="nl-source">
+        <legend>Where does this come from?</legend>
+        <div className="nl-pills">
+          {SOURCES.map((s) => (
+            <button key={s.id} type="button" className="nl-pill" aria-pressed={source === s.id} onClick={() => pick(s.id)}>
+              {source === s.id && check}
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      {source === 'github' ? (
+        <GithubExplainer />
+      ) : (
+        <div className="nl-grid">
+          <form className="nl-form" onSubmit={submit}>
+            <div className="nl-intro">
+              <h2>Set the moment</h2>
+              <p>Launch Crew writes one draft per person and holds every one of them until that person approves it.</p>
+            </div>
+            <div className="nl-field">
+              <label htmlFor="nl-title">Title</label>
+              <input
+                id="nl-title"
+                className="field"
+                type="text"
+                required
+                maxLength={120}
+                aria-describedby="nl-title-hint"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+              <span id="nl-title-hint" className="nl-hint">The crew sees this on their invite.</span>
+            </div>
+            <label className="nl-field">
+              Summary
+              <textarea className="field" rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
+            </label>
+            <div className="nl-row">
+              <div className="nl-field nl-grow">
+                <label htmlFor="nl-at">Launch time</label>
+                <input id="nl-at" className="field" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
+              </div>
+              <div className="nl-field nl-narrow">
+                <label htmlFor="nl-window">Window (minutes)</label>
                 <input
-                  type="text"
-                  placeholder="Name"
-                  aria-label={`Role ${i + 1} name`}
-                  maxLength={MAX_NAME}
-                  value={r.name}
-                  onChange={(e) => setRole(i, { name: e.target.value })}
+                  id="nl-window"
+                  className="field"
+                  type="number"
+                  min={1}
+                  aria-describedby="nl-window-hint"
+                  value={win}
+                  onChange={(e) => setWin(e.target.value)}
                 />
-              </label>
-              <label className="cap-field">
-                <span className="visually-hidden">Role {i + 1} hint</span>
-                <input
-                  type="text"
-                  placeholder="Hint, e.g. spoke about"
-                  aria-label={`Role ${i + 1} hint`}
-                  maxLength={60}
-                  value={r.hint}
-                  onChange={(e) => setRole(i, { hint: e.target.value })}
-                />
-              </label>
-              <Button variant="ghost" onClick={() => setRoles((rs) => rs.filter((_, j) => j !== i))}>
-                Remove<span className="visually-hidden"> role {i + 1}</span>
+                <span id="nl-window-hint" className="nl-hint">Spread, not a pile-on.</span>
+              </div>
+            </div>
+            <fieldset className="nl-fieldset">
+              <legend>Roles</legend>
+              <p className="nl-hint">
+                {source === 'meetup'
+                  ? 'Each role changes how a draft opens. A speaker’s starts with what they talked about; an attendee’s starts with what they took away. Up to four.'
+                  : 'Leave empty for Attendee, Speaker and Organiser. Up to four.'}
+              </p>
+              {roles.map((r, i) => (
+                <div key={i} className="nl-role">
+                  <label className="nl-field">
+                    <span className="visually-hidden">Role {i + 1} name</span>
+                    <input
+                      className="field"
+                      type="text"
+                      placeholder="Name"
+                      aria-label={`Role ${i + 1} name`}
+                      maxLength={MAX_NAME}
+                      value={r.name}
+                      onChange={(e) => setRole(i, { name: e.target.value })}
+                    />
+                  </label>
+                  <label className="nl-field">
+                    <span className="visually-hidden">Role {i + 1} hint</span>
+                    <input
+                      className="field"
+                      type="text"
+                      placeholder="Hint, e.g. spoke about"
+                      aria-label={`Role ${i + 1} hint`}
+                      maxLength={60}
+                      value={r.hint}
+                      onChange={(e) => setRole(i, { hint: e.target.value })}
+                    />
+                  </label>
+                  <Button variant="ghost" onClick={() => setRoles((rs) => rs.filter((_, j) => j !== i))}>
+                    Remove<span className="visually-hidden"> role {i + 1}</span>
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="secondary"
+                disabled={roles.length >= MAX_ROLES}
+                onClick={() => setRoles((rs) => [...rs, { name: '', hint: '' }])}
+              >
+                Add a role
+              </Button>
+            </fieldset>
+            <div className="nl-field">
+              <label htmlFor="nl-hero">Hero image URL (optional)</label>
+              <input
+                id="nl-hero"
+                className="field"
+                type="text"
+                inputMode="url"
+                value={hero}
+                aria-invalid={heroError ? true : undefined}
+                aria-describedby={heroError ? 'cap-hero-error nl-hero-hint' : 'nl-hero-hint'}
+                onChange={(e) => setHero(e.target.value)}
+              />
+              <span id="nl-hero-hint" className="nl-hint">Sits behind every contributor card. Leave it empty and the cards stay typographic.</span>
+            </div>
+            {heroError && <span id="cap-hero-error" role="alert" className="nl-error">{heroError}</span>}
+            <fieldset className="nl-fieldset">
+              <legend>QR centre mark</legend>
+              <p className="nl-hint">The small mark in the middle of the QR code on the event slide and PNG.</p>
+              <div className="nl-seg">
+                {QR_OPTIONS.map((o) => (
+                  <label key={o.id} className="nl-seg-opt">
+                    <input type="radio" name="qr-logo" value={o.id} checked={qr === o.id} onChange={() => setQr(o.id)} />
+                    {o.label}
+                  </label>
+                ))}
+              </div>
+              {qr === 'custom' && (
+                <label className="nl-field">
+                  QR mark image URL
+                  <input
+                    className="field"
+                    type="text"
+                    inputMode="url"
+                    placeholder="https://"
+                    value={qrUrl}
+                    aria-invalid={qrError ? true : undefined}
+                    aria-describedby={qrError ? 'cap-qr-error' : undefined}
+                    onChange={(e) => setQrUrl(e.target.value)}
+                  />
+                </label>
+              )}
+              {qrError && <span id="cap-qr-error" role="alert" className="nl-error">{qrError}</span>}
+            </fieldset>
+            {error && <Alert tone="error">{error}</Alert>}
+            <div className="nl-submit">
+              <Button variant="primary" type="submit" busy={busy} disabled={busy}>
+                Create launch
               </Button>
             </div>
-          ))}
-          <Button
-            variant="secondary"
-            disabled={roles.length >= MAX_ROLES}
-            onClick={() => setRoles((rs) => [...rs, { name: '', hint: '' }])}
-          >
-            Add a role
-          </Button>
-        </fieldset>
-        <label className="cap-field">
-          Hero image URL (optional)
-          <input
-            type="text"
-            inputMode="url"
-            value={hero}
-            aria-invalid={heroError ? true : undefined}
-            aria-describedby={heroError ? 'cap-hero-error' : undefined}
-            onChange={(e) => setHero(e.target.value)}
-          />
-        </label>
-        {heroError && <span id="cap-hero-error" role="alert" className="cap-error">{heroError}</span>}
-        {error && <Alert tone="error">{error}</Alert>}
-        <Button variant="primary" type="submit" busy={busy} disabled={busy}>
-          Create launch
-        </Button>
-      </form>
+          </form>
+          <aside className="nl-preview" aria-label="Live preview">
+            <span className="nl-kicker">Sample post</span>
+            <div className="nl-post">
+              <div className="nl-post-who">
+                <span className="nl-avatar" aria-hidden="true">
+                  {role[0].toUpperCase()}
+                </span>
+                <span className="nl-post-name">
+                  <strong>A crew member</strong>
+                  <span>@handle · X</span>
+                </span>
+              </div>
+              <p className="nl-post-text">{sample}</p>
+              <div className="nl-post-foot">
+                <span>{sample.length} / 280</span>
+                <span>{at ? `Goes out ${DAY(at)}` : 'Time not set'}</span>
+              </div>
+            </div>
+            <span className="nl-kicker">Contributor card</span>
+            <Pass
+              eyebrow={title.trim() || 'Your launch'}
+              name="A contributor"
+              meta={`@handle · ${role}`}
+              stub={{ label: 'Pass', value: '#1', date: DAY(at) }}
+            />
+            <p className="nl-hint">A sample. Each person gets their own, rebuilt when the drafts go out.</p>
+          </aside>
+        </div>
+      )}
     </Frame>
   )
 }

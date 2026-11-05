@@ -2,20 +2,152 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listLaunches, type ApiError, type LaunchSummary } from '../api'
 import Alert from '../components/Alert'
-import Skeleton from '../components/Skeleton'
+import Loader from '../components/Loader'
 import Frame from './Frame'
-import { asError, stamp } from './format'
+import { asError, stamp, until } from './format'
+import './launches.css'
 
-function Actions() {
+type Tone = 'draft' | 'joining' | 'approving' | 'live' | 'closed'
+type View = { tone: Tone; label: string; value: string; sub: string }
+
+const plus = (
+  <svg viewBox="0 0 14 14" aria-hidden="true">
+    <path d="M7 2v10M2 7h10" />
+  </svg>
+)
+
+const DAY = 86_400_000
+
+// "3 days ago", "today", "yesterday".
+function ago(iso: string, now: number) {
+  const d = Math.floor((now - new Date(iso).getTime()) / DAY)
+  if (d <= 0) return 'today'
+  return d === 1 ? 'yesterday' : `${d} days ago`
+}
+
+// What the left panel of a launch card says, from its status and data alone.
+export function viewOf(l: LaunchSummary, now = Date.now()): View {
+  const when = l.launchAt ? `${stamp(l.launchAt)} · ${l.windowMinutes} min` : 'No time set yet'
+  if (l.status === 'closed') {
+    return { tone: 'closed', label: 'Posted', value: 'Closed', sub: l.launchAt ? `${stamp(l.launchAt)} · ${ago(l.launchAt, now)}` : 'Done' }
+  }
+  if (l.status === 'launched') {
+    const end = l.launchAt ? new Date(new Date(l.launchAt).getTime() + l.windowMinutes * 60_000).toISOString() : null
+    const left = until(end, now)
+    return { tone: 'live', label: 'Live', value: 'Posting', sub: left ? `${left} left` : 'Window closing' }
+  }
+  const tone: Tone = l.crewTotal > 0 ? (l.crewIn > 0 ? 'approving' : 'joining') : 'draft'
+  const label = tone === 'approving' ? 'Approving' : tone === 'joining' ? 'Joining' : 'Draft'
+  const left = until(l.launchAt, now)
+  return { tone, label, value: left || (l.launchAt ? 'Overdue' : 'Not set'), sub: when }
+}
+
+function progress(l: LaunchSummary) {
+  if (l.crewTotal === 0) return 'No crew yet'
+  const word = l.status === 'closed' ? 'posted' : l.status === 'launched' ? 'queued' : 'approved'
+  return `${l.crewIn} of ${l.crewTotal} ${word}`
+}
+
+// "2 passes on the board. 1 posting now. Next boarding in 2h 14m."
+function subtitle(items: LaunchSummary[], now: number) {
+  const open = items.filter((l) => l.status !== 'closed')
+  if (open.length === 0) return 'Every launch has gone out.'
+  const live = open.filter((l) => l.status === 'launched').length
+  const next = open
+    .filter((l) => l.status === 'draft' && l.launchAt && new Date(l.launchAt).getTime() > now)
+    .sort((a, b) => new Date(a.launchAt!).getTime() - new Date(b.launchAt!).getTime())[0]
+  const parts = [`${open.length} ${open.length === 1 ? 'pass' : 'passes'} on the board.`]
+  if (live > 0) parts.push(`${live} posting now.`)
+  if (next) parts.push(`Next boarding in ${until(next.launchAt, now)}.`)
+  return parts.join(' ')
+}
+
+function NewLaunchButton() {
   return (
-    <div className="cap-actions">
-      <Link className="btn btn-primary" to="/captain/repos">
-        Connect a repo
-      </Link>
-      <Link className="btn btn-secondary" to="/captain/new">
-        Start one by hand
-      </Link>
+    <Link className="btn btn-primary ln-new" to="/captain/new">
+      {plus}
+      New launch
+    </Link>
+  )
+}
+
+function Ghost() {
+  return (
+    <div className="cap-ghost" aria-hidden="true">
+      <div className="cap-ghost-main">
+        <span className="cap-ghost-bar" />
+        <span className="cap-ghost-block" />
+        <span className="cap-ghost-bar" />
+      </div>
+      <div className="perf perf-v cap-ghost-perf" />
+      <div className="cap-ghost-side">
+        <span className="cap-ghost-block" />
+        <span className="cap-ghost-bar" />
+      </div>
     </div>
+  )
+}
+
+function LaunchCard({ l, now }: { l: LaunchSummary; now: number }) {
+  const v = viewOf(l, now)
+  const shown = l.crewInitials.slice(0, 5)
+  const extra = Math.max(0, l.crewTotal - shown.length)
+  const pct = l.crewTotal > 0 ? Math.round((l.crewIn / l.crewTotal) * 100) : 0
+  return (
+    <li className="ln-item">
+      <Link className="ln-card" to={`/captain/launches/${l.id}`} data-tone={v.tone}>
+        <span className="ln-status">
+          <span className="ln-eyebrow">
+            {v.tone === 'closed' ? (
+              <svg className="ln-tick" viewBox="0 0 11 11" aria-hidden="true">
+                <path d="M1 5.5 L4 8.5 L10 2" />
+              </svg>
+            ) : (
+              <span className={v.tone === 'joining' || v.tone === 'draft' ? 'ln-dot ln-dot-ring' : 'ln-dot'} aria-hidden="true" />
+            )}
+            {v.label}
+          </span>
+          <span className="ln-value">{v.value}</span>
+          <span className="ln-sub">{v.sub}</span>
+        </span>
+        <span className="perf perf-v ln-perf-v" aria-hidden="true" />
+        <span className="perf perf-h ln-perf-h" aria-hidden="true" />
+        <span className="ln-body">
+          <span className="ln-main">
+            <span className="ln-title">{l.title}</span>
+            <span className="ln-chips">
+              {l.repo && <span className="ln-chip">{l.repo}</span>}
+              {l.prCount > 0 && <span className="ln-chip">{l.prCount} PRs</span>}
+              {l.releaseTag && !l.repo && <span className="ln-chip">{l.releaseTag}</span>}
+              <span className="ln-chip">{l.source === 'github' ? 'GitHub release' : 'Manual launch'}</span>
+            </span>
+          </span>
+          <span className="ln-crew">
+            {shown.length > 0 && (
+              <span className="ln-avatars" aria-hidden="true">
+                {shown.map((s, i) => (
+                  <span key={i} className="ln-avatar">
+                    {s}
+                  </span>
+                ))}
+                {extra > 0 && <span className="ln-avatar ln-avatar-more">+{extra}</span>}
+              </span>
+            )}
+            {l.crewTotal > 0 && (
+              <span className="ln-bar" aria-hidden="true">
+                <span style={{ inlineSize: `${pct}%` }} />
+              </span>
+            )}
+            <span className="ln-progress">{progress(l)}</span>
+          </span>
+          <span className="ln-go" aria-hidden="true">
+            <svg viewBox="0 0 16 16">
+              <path d="M6 3.5 L10.5 8 L6 12.5" />
+            </svg>
+          </span>
+        </span>
+      </Link>
+    </li>
   )
 }
 
@@ -33,36 +165,52 @@ export default function Launches() {
     }
   }, [])
 
+  const now = Date.now()
   return (
     <Frame>
-      <h1 className="cap-title">Launches</h1>
       {error ? (
-        <Alert tone="error">{error.message}</Alert>
+        <>
+          <h1 className="cap-title">Launches</h1>
+          <Alert tone="error">{error.message}</Alert>
+        </>
       ) : !items ? (
-        <div aria-busy="true">
-          <Skeleton lines={4} />
-        </div>
+        <>
+          <h1 className="cap-title">Launches</h1>
+          <div aria-busy="true">
+            <Loader label="Loading your launches" />
+          </div>
+        </>
       ) : items.length === 0 ? (
-        <div className="cap-empty">
-          <p>Nothing launched yet. Tag a release, or start one by hand.</p>
-          <Actions />
-        </div>
+        <>
+          <section className="cap-empty panel">
+            <div className="cap-empty-copy">
+              <span className="eyebrow">Board is clear</span>
+              <h1 className="ln-empty-title">No launches yet, and that is a lovely place to start.</h1>
+              <p className="cap-lede">
+                Point Launch Crew at a release or a meetup. Everyone who helped gets a pass with their own post on it, written in their own
+                words, waiting for their tap. You see the whole crew on one page before anything goes out.
+              </p>
+              <NewLaunchButton />
+            </div>
+            <Ghost />
+          </section>
+          <p className="ln-note">Nothing posts until each person taps approve, and only into their own Buffer queue.</p>
+        </>
       ) : (
         <>
-          <Actions />
-          <ul className="cap-list">
+          <div className="ln-head">
+            <div className="ln-head-text">
+              <h1 className="ln-title-main">Launches</h1>
+              <p className="ln-lede">{subtitle(items, now)}</p>
+            </div>
+            <NewLaunchButton />
+          </div>
+          <ul className="ln-list">
             {items.map((l) => (
-              <li key={l.id} className="cap-launch">
-                <Link to={`/captain/launches/${l.id}`}>{l.title}</Link>
-                <span className="cap-muted">
-                  {l.status}
-                  {l.releaseTag && <> · <span className="cap-mono">{l.releaseTag}</span></>}
-                  {l.launchAt && ` · ${stamp(l.launchAt)}`}
-                  {l.status === 'launched' && ` · ${l.openCount} scanned`}
-                </span>
-              </li>
+              <LaunchCard key={l.id} l={l} now={now} />
             ))}
           </ul>
+          <p className="ln-note">Nothing posts until each person taps approve, and only into their own Buffer queue.</p>
         </>
       )}
     </Frame>

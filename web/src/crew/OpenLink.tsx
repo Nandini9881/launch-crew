@@ -5,10 +5,8 @@ import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Card from '../components/Card'
 import ChoiceRow from '../components/ChoiceRow'
-import Shell from '../components/Shell'
 import Skeleton from '../components/Skeleton'
-import Wordmark from '../components/Wordmark'
-import { Dead } from './shared'
+import { CrewFrame, Dead } from './shared'
 import './crew.css'
 
 const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError(0, 'error', String(e)))
@@ -77,10 +75,10 @@ export default function OpenLink() {
 
   const image = view?.card?.url ? view.card : null
   return (
-    <Shell width="person">
-      <div aria-busy={!view || undefined}>
-        <Wordmark />
+    <CrewFrame>
+      <div className="crew-stack" aria-busy={!view || undefined}>
         {view ? <Card project="Event" version="" title={view.title} image={image} /> : <Skeleton lines={4} />}
+        <div className="perf perf-h crew-perf" aria-hidden="true" />
         <form onSubmit={submit}>
           <fieldset className="crew-fieldset">
             <legend>What was your part?</legend>
@@ -124,6 +122,6 @@ export default function OpenLink() {
           </div>
         </form>
       </div>
-    </Shell>
+    </CrewFrame>
   )
 }

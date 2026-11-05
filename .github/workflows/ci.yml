@@ -29,7 +29,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go test ./...
+      # The DB-backed tests share one Postgres and each migrates it, so packages must not run in parallel.
+      - run: go test -p 1 ./...
 
   e2e:
     needs: test

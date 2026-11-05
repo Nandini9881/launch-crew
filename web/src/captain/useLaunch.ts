@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getLaunch, patchLaunch, type ApiError, type Detail, type Patch } from '../api'
+import { editCaptainDraft, getLaunch, patchCaptainDraft, patchLaunch, type ApiError, type Detail, type Patch } from '../api'
 import { asError } from './format'
 
 const REFETCH = 15000
@@ -49,5 +49,21 @@ export function useLaunch(id: string) {
     [id],
   )
 
-  return { detail, error, reload, patch }
+  const editDraft = useCallback(
+    async (draftId: string, text: string) => {
+      const d = await editCaptainDraft(id, draftId, text)
+      if (live.current) setDetail(d)
+    },
+    [id],
+  )
+
+  const skipDraft = useCallback(
+    async (draftId: string, skipped: boolean) => {
+      const d = await patchCaptainDraft(id, draftId, { skipped })
+      if (live.current) setDetail(d)
+    },
+    [id],
+  )
+
+  return { detail, error, reload, patch, editDraft, skipDraft }
 }

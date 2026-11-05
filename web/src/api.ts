@@ -146,8 +146,14 @@ export type LaunchView = {
 
 export const openLink = (openToken: string) => call<LaunchView>(`/api/l/${encodeURIComponent(openToken)}`)
 
-export const showInfo = (openToken: string) =>
-  call<{ title: string; shortUrl: string }>(`/api/l/${encodeURIComponent(openToken)}/show`)
+export type ShowInfo = {
+  title: string
+  shortUrl: string
+  /** Centre mark of the QR: the plane (default), nothing, or the captain's own image. */
+  qrLogo?: 'plane' | 'none' | 'custom'
+  qrLogoUrl?: string
+}
+export const showInfo = (openToken: string) => call<ShowInfo>(`/api/l/${encodeURIComponent(openToken)}/show`)
 
 export const chooseRole = (
   openToken: string,
@@ -170,6 +176,15 @@ export type LaunchSummary = {
   windowMinutes: number
   openCount: number
   createdAt: string
+  /** Full repo name for a GitHub launch, '' for a manual one. */
+  repo: string
+  /** Headline PRs in the launch (0 for a manual launch). */
+  prCount: number
+  /** People in the crew who are in (approved, queued or posted) and the crew size, captain not counted. */
+  crewIn: number
+  crewTotal: number
+  /** Initials of up to 5 crew members, for the avatar stack. */
+  crewInitials: string[]
 }
 
 export type Pr = { prNumber: number; title: string; authorLogin: string; hidden: boolean }
@@ -179,7 +194,7 @@ export type CaptainDraft = {
   channelName: string
   service: string
   text: string
-  status: 'draft' | 'sending' | 'queued' | 'failed'
+  status: 'draft' | 'sending' | 'queued' | 'failed' | 'skipped'
   bufferPostId: string
   note: string
 }
@@ -219,7 +234,13 @@ export type Detail = {
   checks: Check[]
   deadLetters: DeadLetter[]
   counts: { in: number; total: number }
+  /** The captain's own name, shown as the first member of the crew. */
+  captainName: string
+  /** QR centre mark on the show slide and PNG: the plane, nothing, or the captain's own image. */
+  qrLogo: QrLogo
+  qrLogoUrl: string
 }
+export type QrLogo = 'plane' | 'none' | 'custom'
 
 export type NewLaunch = {
   title: string
@@ -228,6 +249,9 @@ export type NewLaunch = {
   heroUrl?: string
   launchAt?: string
   windowMinutes?: number
+  qrLogo?: QrLogo
+  /** https image URL, only with qrLogo 'custom'. */
+  qrLogoUrl?: string
 }
 
 export type Patch = {
@@ -237,6 +261,8 @@ export type Patch = {
   windowMinutes?: number
   crewCap?: number
   hiddenPrs?: number[]
+  qrLogo?: QrLogo
+  qrLogoUrl?: string
   tickedCrew?: string[]
 }
 
@@ -269,6 +295,10 @@ export const listLaunches = () => captain<LaunchSummary[]>('/launches')
 export const createLaunch = (b: NewLaunch) => captain<Detail>('/launches', json('POST', b))
 export const getLaunch = (id: string) => captain<Detail>(`/launches/${lid(id)}`)
 export const patchLaunch = (id: string, p: Patch) => captain<Detail>(`/launches/${lid(id)}`, json('PATCH', p))
+// text edits the post; skipped removes it from (true) or restores it to (false) the launch.
+export const patchCaptainDraft = (id: string, draftId: string, body: { text?: string; skipped?: boolean }) =>
+  captain<Detail>(`/launches/${lid(id)}/drafts/${encodeURIComponent(draftId)}`, json('PATCH', body))
+export const editCaptainDraft = (id: string, draftId: string, text: string) => patchCaptainDraft(id, draftId, { text })
 export const pressLaunch = (id: string) => captain<{ status: string }>(`/launches/${lid(id)}/launch`, json('POST'))
 export const retryJob = (id: string, jobId: number) =>
   captain<{ status: string }>(`/launches/${lid(id)}/retry/${jobId}`, json('POST'))

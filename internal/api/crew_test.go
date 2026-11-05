@@ -19,6 +19,7 @@ import (
 	"github.com/shubham-tomar/launchcrew/internal/api"
 	"github.com/shubham-tomar/launchcrew/internal/auth"
 	"github.com/shubham-tomar/launchcrew/internal/buffer"
+	"github.com/shubham-tomar/launchcrew/internal/cards"
 	"github.com/shubham-tomar/launchcrew/internal/crew"
 	"github.com/shubham-tomar/launchcrew/internal/crypto"
 	"github.com/shubham-tomar/launchcrew/internal/db"
@@ -613,7 +614,7 @@ func TestShowPNGRendersOnceAndCaches(t *testing.T) {
 	var calls int
 	var gotTitle, gotURL string
 	deps := e.deps
-	deps.RenderSlide = func(title, shortURL string) ([]byte, error) {
+	deps.RenderSlide = func(title, shortURL string, _ cards.SlideLogo) ([]byte, error) {
 		calls++
 		gotTitle, gotURL = title, shortURL
 		return []byte("\x89PNGfake"), nil
@@ -682,5 +683,49 @@ func TestShowInfoCountsNoOpenAndIgnoresCap(t *testing.T) {
 	}
 	if rr := e.do("GET", "/api/l/nope/show", "", nil, nil); rr.Code != http.StatusNotFound {
 		t.Fatalf("unknown token: %d", rr.Code)
+	}
+}
+
+func TestShowInfoAndPNGCarryTheQRLogo(t *testing.T) {
+	e := setup(t)
+	var gotLogo []cards.SlideLogo
+	deps := e.deps
+	deps.RenderSlide = func(_, _ string, logo cards.SlideLogo) ([]byte, error) {
+		gotLogo = append(gotLogo, logo)
+		return []byte("\x89PNGfake"), nil
+	}
+	e.h = httpserver.New(httpserver.Deps{Crew: api.NewCrew(deps, e.st)})
+
+	// The default is the plane, with no image URL.
+	got := decode(t, e.do("GET", "/api/l/"+e.open+"/show", "", nil, nil))
+	if got["qrLogo"] != "plane" || got["qrLogoUrl"] != "" {
+		t.Fatalf("default show: %v", got)
+	}
+
+	// A custom logo is reported with the URL of the stored image, and the PNG is drawn with it.
+	if _, err := e.q.InsertLaunchAsset(e.ctx, sqlc.InsertLaunchAssetParams{LaunchID: e.launch.ID, Kind: "qrlogo", R2Url: "https://cdn.example/cards/logo.png", Sha: "l0g0"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.deps.Pool.Exec(e.ctx, "UPDATE launches SET qr_logo = 'custom' WHERE id = $1", e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	got = decode(t, e.do("GET", "/api/l/"+e.open+"/show", "", nil, nil))
+	if got["qrLogo"] != "custom" || got["qrLogoUrl"] != "https://cdn.example/cards/logo.png" {
+		t.Fatalf("custom show: %v", got)
+	}
+	if rr := e.do("GET", "/api/l/"+e.open+"/show.png", "", nil, nil); rr.Code != 200 {
+		t.Fatalf("png: %d", rr.Code)
+	}
+	if len(gotLogo) != 1 || gotLogo[0] != (cards.SlideLogo{Mode: "custom", URL: "https://cdn.example/cards/logo.png"}) {
+		t.Fatalf("render logo %+v", gotLogo)
+	}
+
+	// None is reported as none, with no URL even though an image is stored.
+	if _, err := e.deps.Pool.Exec(e.ctx, "UPDATE launches SET qr_logo = 'none' WHERE id = $1", e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	got = decode(t, e.do("GET", "/api/l/"+e.open+"/show", "", nil, nil))
+	if got["qrLogo"] != "none" || got["qrLogoUrl"] != "" {
+		t.Fatalf("none show: %v", got)
 	}
 }

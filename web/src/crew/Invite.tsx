@@ -1,9 +1,7 @@
 import { Link, useParams } from 'react-router'
 import Card from '../components/Card'
-import Shell from '../components/Shell'
 import Skeleton from '../components/Skeleton'
-import Wordmark from '../components/Wordmark'
-import { Dead, Foreign, Footer, useInvite } from './shared'
+import { CrewFrame, Dead, Foreign, useInvite } from './shared'
 
 export default function Invite() {
   const token = useParams().token ?? ''
@@ -14,9 +12,8 @@ export default function Invite() {
 
   const q = encodeURIComponent
   return (
-    <Shell width="person">
-      <div aria-busy={!view || undefined}>
-        <Wordmark />
+    <CrewFrame version={view?.launch.version} footer>
+      <div className="crew-stack" aria-busy={!view || undefined}>
         {view ? (
           <Card
             project={view.launch.project}
@@ -27,6 +24,7 @@ export default function Invite() {
         ) : (
           <Skeleton lines={4} />
         )}
+        <div className="perf perf-h crew-perf" aria-hidden="true" />
         {view ? <p className="crew-preview">{view.preview}</p> : <Skeleton lines={3} />}
         <p className="crew-caption">
           adds drafts to your queue only · nothing posts without your tap · disconnect any time
@@ -48,7 +46,6 @@ export default function Invite() {
           </div>
         )}
       </div>
-      <Footer />
-    </Shell>
+    </CrewFrame>
   )
 }

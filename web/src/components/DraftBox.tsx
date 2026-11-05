@@ -41,7 +41,8 @@ export default function DraftBox({ id, serverText, fromModel, waiting, limit, co
   useEffect(() => {
     if (first.current) {
       first.current = false
-      onText(serverText)
+      // Typing can beat this first effect; never overwrite text the person already changed.
+      if (!edited.current) onText(serverText)
       return
     }
     if (edited.current) return

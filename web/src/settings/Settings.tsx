@@ -5,8 +5,8 @@ import Alert from '../components/Alert'
 import Button from '../components/Button'
 import SchemeSwitch from '../components/SchemeSwitch'
 import Shell from '../components/Shell'
-import Skeleton from '../components/Skeleton'
-import Wordmark from '../components/Wordmark'
+import Loader from '../components/Loader'
+import NavPill from '../components/NavPill'
 import './settings.css'
 
 type Phase = 'idle' | 'confirm' | 'busy'
@@ -78,7 +78,7 @@ export default function Settings() {
   if (loadFailed) {
     body = <Alert tone="error">We could not load your settings. Try again in a moment.</Alert>
   } else if (!me) {
-    body = <Skeleton lines={4} />
+    body = <Loader label="Loading your settings" compact />
   } else if (deleted) {
     body = <Alert tone="success">Deleted. Your tokens and drafts are gone.</Alert>
   } else {
@@ -135,13 +135,17 @@ export default function Settings() {
 
   return (
     <Shell width="person">
-      <Wordmark />
-      <h1 className="settings-title">Settings</h1>
-      {body}
-      <footer className="settings-footer">
-        <SchemeSwitch />
-        <span>Built on the Buffer API</span>
-      </footer>
+      <div className="settings-page">
+        <NavPill home="/" />
+        <section className="panel" aria-labelledby="settings-title">
+          <h1 className="settings-title" id="settings-title">Settings</h1>
+          {body}
+        </section>
+        <footer className="settings-footer">
+          <SchemeSwitch />
+          <span>Built on the Buffer API</span>
+        </footer>
+      </div>
     </Shell>
   )
 }

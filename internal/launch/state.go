@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -101,6 +102,17 @@ func (s *state) withBuffer(ctx context.Context, d Deps) {
 }
 
 func (s *state) version() string { return s.l.ReleaseTag.String }
+
+// crewSize is how many different people shipped the changes in this launch.
+func (s *state) crewSize() int {
+	seen := map[int64]bool{}
+	for _, c := range s.changes {
+		if c.AuthorID != 0 {
+			seen[c.AuthorID] = true
+		}
+	}
+	return len(seen)
+}
 
 func (s *state) headline() string {
 	for _, c := range s.changes {
@@ -236,6 +248,8 @@ func (d Deps) preflightDeps() preflight.Deps {
 // assets, one draft per captain channel, and the calls Launch will make
 // (one per captain post, plus two).
 func runPreflight(ctx context.Context, d Deps, s *state, drafts []sqlc.CaptainDraft) ([]preflight.Check, bool) {
+	// A post the captain removed for a channel is not sent, so it is not checked or counted.
+	drafts = slices.DeleteFunc(slices.Clone(drafts), func(cd sqlc.CaptainDraft) bool { return cd.Status == captainSkipped })
 	pl := preflight.Launch{ID: s.l.ID, LaunchAt: s.l.LaunchAt.Time, ExpectedCalls: len(drafts) + 2}
 	if s.conn != nil {
 		pl.ConnectionID = s.conn.ID

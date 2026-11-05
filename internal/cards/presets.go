@@ -1,23 +1,31 @@
 package cards
 
 import (
-	"hash/fnv"
+	"fmt"
 	"math"
 	"strings"
 
 	"github.com/google/uuid"
 )
 
-// Preset is one card colour set: field fill, type colour and the 24px mark.
+// Preset is one card colour set: field fill, type colour and the small mark.
+// Eyebrow and Muted are the tinted eyebrow line and the quiet text; when
+// empty they are derived from Type over Field.
 type Preset struct {
-	Name, Field, Type, Mark string
+	Name, Field, Type, Mark, Eyebrow, Muted string
 }
 
 const (
-	white  = "#FFFFFF"
-	ink    = "#16161A"
-	accent = "#E4572E"
-	paper  = "#F7F7F5"
+	white = "#FFFFFF"
+	ink   = "#15181F"
+	// darkType is the type colour of the light presets, kept at the value they were tuned against.
+	darkType = "#16161A"
+	accent   = "#4A45D1"
+	paper    = "#E8EBF2"
+	// ground is the page colour the perforation notches are cut to.
+	ground = "#E8EBF2"
+	// inkPreset indexes the ink boarding pass in Presets, the default look.
+	inkPreset = 7
 )
 
 // Presets are the eight card fields, tuned so Type on Field is at least 7:1.
@@ -31,25 +39,45 @@ const (
 //	magenta    #B3326B    #9E2C5F    white  7.05      white
 //	forest     #2E6B3F    #2B643B    white  7.03      white
 //	orange     #D9480F    #F38357    ink    7.04      ink
-//	ink        #16161A    #16161A    white  18.04     accent (4.9:1)
+//	ink        #15181F    #15181F    white  17.5      eyebrow #ADA9FF
 //
-// The accent mark is used only where it holds 3:1 against the field.
+// Index 7 is the ink boarding pass, now the default for every launch. The
+// other seven stay valid so cards of earlier launches keep their stored look.
 var Presets = [8]Preset{
-	{"cobalt", "#1C56AD", white, white},
-	{"vermilion", "#EC8669", ink, ink},
-	{"teal", "#0A654E", white, white},
-	{"ochre", "#D9A520", ink, ink},
-	{"magenta", "#9E2C5F", white, white},
-	{"forest", "#2B643B", white, white},
-	{"orange", "#F38357", ink, ink},
-	{"ink", "#16161A", white, accent},
+	{"cobalt", "#1C56AD", white, white, "", ""},
+	{"vermilion", "#EC8669", darkType, darkType, "", ""},
+	{"teal", "#0A654E", white, white, "", ""},
+	{"ochre", "#D9A520", darkType, darkType, "", ""},
+	{"magenta", "#9E2C5F", white, white, "", ""},
+	{"forest", "#2B643B", white, white, "", ""},
+	{"orange", "#F38357", darkType, darkType, "", ""},
+	{"ink", "#15181F", white, "#ADA9FF", "#ADA9FF", "#B9C0CE"},
 }
 
-// PresetFor picks the launch's preset from its id, stable across runs.
-func PresetFor(launchID uuid.UUID) Preset {
-	h := fnv.New32a()
-	_, _ = h.Write(launchID[:])
-	return Presets[h.Sum32()%8]
+// PresetFor returns the preset for a launch: the ink boarding pass for all.
+// The id is kept in the signature so a per-launch choice can come back.
+func PresetFor(_ uuid.UUID) Preset { return Presets[inkPreset] }
+
+// blend returns fg over bg at opacity a, as a hex colour.
+func blend(fg, bg string, a float64) string {
+	fr, fgc, fb := parseHex(fg)
+	br, bgc, bb := parseHex(bg)
+	h := func(f, b float64) int { return int((f*a+b*(1-a))*255 + 0.5) }
+	return fmt.Sprintf("#%02X%02X%02X", h(fr, br), h(fgc, bgc), h(fb, bb))
+}
+
+func (p Preset) eyebrow() string {
+	if p.Eyebrow != "" {
+		return p.Eyebrow
+	}
+	return blend(p.Type, p.Field, 0.9)
+}
+
+func (p Preset) muted() string {
+	if p.Muted != "" {
+		return p.Muted
+	}
+	return blend(p.Type, p.Field, 0.84)
 }
 
 func parseHex(s string) (r, g, b float64) {

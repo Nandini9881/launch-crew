@@ -34,6 +34,9 @@ const (
 	draftSending  = "sending"
 	draftQueued   = "queued"
 	captainFailed = "failed"
+	// captainSkipped is a post the captain removed from the launch for one
+	// channel. It is kept, so it is not rebuilt, and it is never sent.
+	captainSkipped = "skipped"
 )
 
 // CommentsPayload is the SendComments payload: one member's PR comment,
@@ -126,7 +129,7 @@ func runLaunch(ctx context.Context, d Deps, id uuid.UUID) error {
 // up in Buffer before any new create.
 func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraft) error {
 	switch {
-	case cd.Status == draftQueued, cd.Status == captainFailed, cd.BufferPostID.Valid:
+	case cd.Status == captainSkipped, cd.Status == draftQueued, cd.Status == captainFailed, cd.BufferPostID.Valid:
 		return nil
 	case cd.Status == draftSending:
 		found, err := adoptCaptainPost(ctx, d, s, cd)
@@ -361,4 +364,12 @@ func contributorCard(ctx context.Context, d Deps, s *state, m sqlc.CrewMember) (
 	}
 	m.CardAssetID = uuid.NullUUID{UUID: a.ID, Valid: true}
 	return m, nil
+}
+
+// titleCase upper-cases the first letter of a role word, as the card prints it.
+func titleCase(role string) string {
+	if role == "" {
+		return ""
+	}
+	return strings.ToUpper(role[:1]) + role[1:]
 }

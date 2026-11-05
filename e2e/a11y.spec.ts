@@ -45,7 +45,7 @@ const h1 = (text: string | RegExp) => async (p: Page) => {
 test('home', async ({ browser }) => {
   const { ctx, page } = await open(browser, undefined)
   await scan(page, '/', async (p) => {
-    await expect(p.getByRole('link', { name: 'Sign in with Buffer' })).toBeVisible()
+    await expect(p.getByRole('link', { name: 'Sign in with Buffer' }).first()).toBeVisible()
   })
   await ctx.close()
 })
@@ -117,7 +117,7 @@ test('captain: no launches yet', async ({ browser, request }) => {
   await page.goto('/auth/buffer/start?return_to=/captain')
   await expect(page).toHaveURL(/\/captain$/)
   await scan(page, '/captain', async (p) => {
-    await expect(p.getByText('Nothing launched yet. Tag a release, or start one by hand.')).toBeVisible()
+    await expect(p.getByRole('heading', { name: /No launches yet/ })).toBeVisible()
   })
   await ctx.close()
 })

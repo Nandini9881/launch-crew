@@ -240,3 +240,97 @@ func TestCaptainSessionForDeletedUserSignsOut(t *testing.T) {
 		t.Fatalf("cookie not cleared: %v", rr.Result().Cookies())
 	}
 }
+
+func TestCaptainEditDraft(t *testing.T) {
+	e := setupCaptain(t)
+	mine := e.cookie(t, session.Session{UserID: e.owner.ID})
+	var id uuid.UUID
+	if err := e.pool.QueryRow(e.ctx,
+		`INSERT INTO captain_drafts (launch_id, channel_id, text) VALUES ($1, 'ch-1', 'old') RETURNING id`, e.launch.ID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	url := "/api/captain/launches/" + e.launch.ID.String() + "/drafts/" + id.String()
+
+	if rr := e.do("PATCH", url, `{"text":"  A better post  "}`, nil, mine); rr.Code != http.StatusOK {
+		t.Fatalf("edit: %d %s", rr.Code, rr.Body)
+	}
+	var got string
+	if err := e.pool.QueryRow(e.ctx, `SELECT text FROM captain_drafts WHERE id = $1`, id).Scan(&got); err != nil || got != "A better post" {
+		t.Fatalf("stored text %q, err %v", got, err)
+	}
+	if rr := e.do("PATCH", url, `{"text":"   "}`, nil, mine); rr.Code != http.StatusBadRequest {
+		t.Fatalf("empty text: %d %s", rr.Code, rr.Body)
+	}
+	if rr := e.do("PATCH", "/api/captain/launches/"+e.launch.ID.String()+"/drafts/"+uuid.NewString(), `{"text":"x"}`, nil, mine); rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown draft: %d %s", rr.Code, rr.Body)
+	}
+	theirs := e.cookie(t, session.Session{UserID: e.other.ID})
+	if rr := e.do("PATCH", url, `{"text":"hijack"}`, nil, theirs); rr.Code != http.StatusNotFound {
+		t.Fatalf("someone else's launch: %d %s", rr.Code, rr.Body)
+	}
+	if _, err := e.pool.Exec(e.ctx, `UPDATE captain_drafts SET buffer_post_id = 'p1' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if rr := e.do("PATCH", url, `{"text":"too late"}`, nil, mine); rr.Code != http.StatusBadRequest {
+		t.Fatalf("sent draft: %d %s", rr.Code, rr.Body)
+	}
+}
+
+func TestCaptainSkipRestoreAndLogoFields(t *testing.T) {
+	e := setupCaptain(t)
+	mine := e.cookie(t, session.Session{UserID: e.owner.ID})
+	var id uuid.UUID
+	if err := e.pool.QueryRow(e.ctx,
+		`INSERT INTO captain_drafts (launch_id, channel_id, text) VALUES ($1, 'ch-1', 'hello') RETURNING id`, e.launch.ID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/captain/launches/" + e.launch.ID.String()
+	status := func() string {
+		var s string
+		if err := e.pool.QueryRow(e.ctx, `SELECT status FROM captain_drafts WHERE id = $1`, id).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	if rr := e.do("PATCH", base+"/drafts/"+id.String(), `{"skipped":true}`, nil, mine); rr.Code != http.StatusOK || status() != "skipped" {
+		t.Fatalf("skip: %d %s (status %s)", rr.Code, rr.Body, status())
+	}
+	if rr := e.do("PATCH", base+"/drafts/"+id.String(), `{"text":"edit while skipped"}`, nil, mine); rr.Code != http.StatusBadRequest {
+		t.Fatalf("edit a skipped post: %d %s", rr.Code, rr.Body)
+	}
+	if rr := e.do("PATCH", base+"/drafts/"+id.String(), `{}`, nil, mine); rr.Code != http.StatusBadRequest {
+		t.Fatalf("empty patch: %d %s", rr.Code, rr.Body)
+	}
+	if rr := e.do("PATCH", base+"/drafts/"+id.String(), `{"skipped":false}`, nil, mine); rr.Code != http.StatusOK || status() != "draft" {
+		t.Fatalf("restore: %d %s (status %s)", rr.Code, rr.Body, status())
+	}
+
+	// The detail carries the new fields.
+	v := decode(t, e.do("GET", base, "", nil, mine))
+	if v["qrLogo"] != "plane" || v["qrLogoUrl"] != "" {
+		t.Fatalf("detail logo: %v", v)
+	}
+	if name, ok := v["captainName"].(string); !ok || name == "" {
+		t.Fatalf("detail captainName: %v", v["captainName"])
+	}
+
+	// A bad logo choice is a 400 on create and on patch.
+	for _, body := range []string{`{"title":"x","qrLogo":"custom"}`, `{"title":"x","qrLogo":"sparkle"}`, `{"title":"x","qrLogo":"custom","qrLogoUrl":"http://example.com/a.png"}`} {
+		if rr := e.do("POST", "/api/captain/launches", body, nil, mine); rr.Code != http.StatusBadRequest {
+			t.Fatalf("create %s: %d %s", body, rr.Code, rr.Body)
+		}
+	}
+	if rr := e.do("PATCH", base, `{"qrLogo":"none"}`, nil, mine); rr.Code != http.StatusOK {
+		t.Fatalf("patch qrLogo none: %d %s", rr.Code, rr.Body)
+	}
+	if v := decode(t, e.do("GET", base, "", nil, mine)); v["qrLogo"] != "none" {
+		t.Fatalf("detail after patch: %v", v["qrLogo"])
+	}
+
+	// The list carries the new summary fields.
+	rr := e.do("GET", "/api/captain/launches", "", nil, mine)
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"crewInitials":[]`) || !strings.Contains(rr.Body.String(), `"prCount":0`) || !strings.Contains(rr.Body.String(), `"repo":""`) {
+		t.Fatalf("list: %d %s", rr.Code, rr.Body)
+	}
+}
