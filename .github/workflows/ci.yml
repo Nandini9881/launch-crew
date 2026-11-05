@@ -4,6 +4,7 @@ on: push
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
@@ -35,6 +36,7 @@ jobs:
   e2e:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -59,11 +61,25 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install web and Playwright
-        run: |
+      - run: |
           npm ci --prefix web
           npm ci --prefix e2e
-          cd e2e && npx playwright install --with-deps chromium webkit
+      # Browsers are a few hundred MB; keep them between runs, keyed on the Playwright version.
+      - id: pw
+        run: echo "version=$(node -p "require('./e2e/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Playwright browsers
+        working-directory: e2e
+        run: |
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium webkit
+          else
+            npx playwright install --with-deps chromium webkit
+          fi
       - name: Playwright (Chromium and WebKit)
         working-directory: e2e
         run: npx playwright test --project chromium --project webkit
