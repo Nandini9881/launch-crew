@@ -15,7 +15,9 @@ import (
 var fontFS embed.FS
 
 type fontSet struct {
-	display, body, mono *sfnt.Font
+	// display is Gabarito 700 (names, numbers); label is Hanken Grotesk 600
+	// (small uppercase labels); body is Hanken Grotesk 400; mono is for the QR slide URL.
+	display, label, body, mono *sfnt.Font
 }
 
 var (
@@ -42,8 +44,9 @@ func loadFonts() (fontSet, error) {
 			return f
 		}
 		fontsVal = fontSet{
-			display: load("BricolageGrotesque-SemiBold.ttf"),
-			body:    load("InstrumentSans-Medium.ttf"),
+			display: load("Gabarito-700.ttf"),
+			label:   load("HankenGrotesk-600.ttf"),
+			body:    load("HankenGrotesk-400.ttf"),
 			mono:    load("JetBrainsMono-Regular.ttf"),
 		}
 	})

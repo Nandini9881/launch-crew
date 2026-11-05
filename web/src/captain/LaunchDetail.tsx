@@ -1,16 +1,43 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { pressLaunch, retryJob, type Patch } from '../api'
+import { pressLaunch, retryJob, type Detail, type Patch } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
-import Skeleton from '../components/Skeleton'
+import Loader from '../components/Loader'
 import Crew from './Crew'
 import Frame from './Frame'
-import { asError } from './format'
+import { asError, stamp } from './format'
 import Preflight from './Preflight'
 import Review from './Review'
 import Timing from './Timing'
 import { useLaunch } from './useLaunch'
+
+type Step = { name: string; note: string; state: 'done' | 'now' | 'next' }
+
+// Where the launch is: release in, drafts built, crew joining, then the launch itself.
+function Steps({ detail, launched }: { detail: Detail; launched: boolean }) {
+  const built = detail.captainDrafts.length > 0
+  const crewing = detail.crew.length > 0
+  const raw = [
+    { name: detail.source === 'github' ? 'Release detected' : 'Launch created', note: detail.releaseTag || 'by hand', done: true },
+    { name: 'Drafts built', note: built ? `${detail.captainDrafts.length} of yours` : 'building', done: built || launched },
+    { name: 'Crew joining', note: `${detail.counts.in} of ${detail.counts.total} in`, done: launched },
+    { name: 'Launch', note: detail.launchAt ? stamp(detail.launchAt) : 'time not set', done: launched },
+  ]
+  const now = raw.findIndex((s) => !s.done)
+  const steps: Step[] = raw.map((s, i) => ({ name: s.name, note: s.note, state: s.done ? 'done' : i === now ? 'now' : 'next' }))
+  if (!crewing && now === 2) steps[2].note = 'no one yet'
+  return (
+    <ol className="cap-steps" aria-label="Progress">
+      {steps.map((s) => (
+        <li key={s.name} className={`cap-step cap-step-${s.state}`} aria-current={s.state === 'now' ? 'step' : undefined}>
+          <strong>{s.name}</strong>
+          <span className="cap-muted">{s.note}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
 
 export default function LaunchDetail() {
   const id = useParams().id ?? ''
@@ -63,7 +90,7 @@ export default function LaunchDetail() {
     return (
       <Frame>
         <div aria-busy="true">
-          <Skeleton lines={5} />
+          <Loader label="Loading this launch" />
         </div>
       </Frame>
     )
@@ -89,10 +116,18 @@ export default function LaunchDetail() {
           Launched · {detail.counts.in} of {detail.counts.total} in · {detail.openCount} scanned
         </p>
       )}
+      <Steps detail={detail} launched={launched} />
       {notice && <Alert tone="error">{notice}</Alert>}
       <div className="cap-grid">
         <Review detail={detail} pending={pending} onHidden={(hiddenPrs) => save({ hiddenPrs })} />
         <div className="cap-col">
+          <Preflight
+            checks={detail.checks}
+            launched={launched}
+            busy={busy}
+            error={launchError}
+            onLaunch={launch}
+          />
           <Crew detail={detail} pending={pending} onTicked={(tickedCrew) => save({ tickedCrew })} />
           <Timing key={`${detail.launchAt}-${detail.windowMinutes}`} detail={detail} onSave={save} />
           {manual && detail.status === 'draft' && (
@@ -104,14 +139,6 @@ export default function LaunchDetail() {
               <a href={detail.pngUrl} download>Download PNG</a>
             </p>
           )}
-
-          <Preflight
-            checks={detail.checks}
-            launched={launched}
-            busy={busy}
-            error={launchError}
-            onLaunch={launch}
-          />
         </div>
       </div>
     </Frame>

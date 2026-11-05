@@ -3,10 +3,8 @@ import { Link, useParams } from 'react-router'
 import { share } from '../api'
 import Button from '../components/Button'
 import Card from '../components/Card'
-import Shell from '../components/Shell'
 import Skeleton from '../components/Skeleton'
-import Wordmark from '../components/Wordmark'
-import { Dead, Foreign, Footer, useInvite } from './shared'
+import { CrewFrame, Dead, Foreign, useInvite } from './shared'
 
 export default function Fallback() {
   const token = useParams().token ?? ''
@@ -58,17 +56,17 @@ export default function Fallback() {
   }
 
   return (
-    <Shell width="person">
+    <CrewFrame version={view?.launch.version} footer>
       <div className="visually-hidden" role="status">
         {announce}
       </div>
-      <div aria-busy={!view || draft === undefined || undefined}>
-        <Wordmark />
+      <div className="crew-stack" aria-busy={!view || draft === undefined || undefined}>
         {view ? (
           <Card project={view.launch.project} version={view.launch.version} title={view.launch.title} image={view.card} />
         ) : (
           <Skeleton lines={4} />
         )}
+        <div className="perf perf-h crew-perf" aria-hidden="true" />
         {draft === undefined ? <Skeleton lines={3} /> : <p className="crew-preview">{draft}</p>}
         {draft !== undefined && (
           <div className="crew-actions">
@@ -100,7 +98,6 @@ export default function Fallback() {
           </div>
         )}
       </div>
-      <Footer />
-    </Shell>
+    </CrewFrame>
   )
 }

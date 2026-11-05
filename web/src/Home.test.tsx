@@ -1,15 +1,36 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import App from './App'
 
-test('home offers sign in and the settings link', () => {
+function renderHome() {
   render(
     <MemoryRouter initialEntries={['/']}>
       <App />
     </MemoryRouter>,
   )
-  expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Sign in with Buffer' })).toHaveAttribute('href', '/auth/buffer/start?return_to=/captain')
+}
+
+test('home offers sign in and the settings link', () => {
+  renderHome()
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('One release. Nine people. Nine posts, all theirs.')
+  const signIns = screen.getAllByRole('link', { name: 'Sign in with Buffer' })
+  expect(signIns.length).toBeGreaterThanOrEqual(2)
+  for (const a of signIns) expect(a).toHaveAttribute('href', '/auth/buffer/start?return_to=/captain')
+  expect(screen.getByRole('link', { name: 'Start a launch' })).toHaveAttribute('href', '/auth/buffer/start?return_to=/captain')
   expect(screen.getByRole('link', { name: 'Opt out or delete your data' })).toHaveAttribute('href', '/settings')
   expect(screen.getAllByRole('main')).toHaveLength(1)
+})
+
+test('home navigation anchors point at sections that exist', () => {
+  renderHome()
+  const nav = within(screen.getByRole('navigation', { name: 'Main' }))
+  expect(nav.getByRole('link', { name: 'Why' })).toHaveAttribute('href', '#why')
+  expect(nav.getByRole('link', { name: 'How it works' })).toHaveAttribute('href', '#how')
+  expect(nav.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '#privacy')
+  for (const id of ['why', 'how', 'privacy']) expect(document.getElementById(id)).not.toBeNull()
+})
+
+test('home keeps the scheme switch', () => {
+  renderHome()
+  expect(screen.getByRole('group')).toBeInTheDocument()
 })

@@ -102,6 +102,17 @@ func (s *state) withBuffer(ctx context.Context, d Deps) {
 
 func (s *state) version() string { return s.l.ReleaseTag.String }
 
+// crewSize is how many different people shipped the changes in this launch.
+func (s *state) crewSize() int {
+	seen := map[int64]bool{}
+	for _, c := range s.changes {
+		if c.AuthorID != 0 {
+			seen[c.AuthorID] = true
+		}
+	}
+	return len(seen)
+}
+
 func (s *state) headline() string {
 	for _, c := range s.changes {
 		if !c.Hidden && c.Title != "" {

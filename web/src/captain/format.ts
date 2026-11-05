@@ -21,3 +21,29 @@ export const fromLocalInput = (v: string) => new Date(v).toISOString()
 export const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => undefined)
 
 export const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError(0, 'error', String(e)))
+
+// "2h 14m", "38m" or "3d" until an instant; empty once it has passed.
+export const until = (iso: string | null, now = Date.now()) => {
+  if (!iso) return ''
+  const m = Math.round((new Date(iso).getTime() - now) / 60000)
+  if (m <= 0) return ''
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  return h < 48 ? `${h}h ${m % 60}m` : `${Math.round(h / 24)}d`
+}
+
+// Buffer's character limits per service, for the counter on the captain's own posts.
+const LIMITS: Record<string, number> = { twitter: 280, x: 280, bluesky: 300, threads: 500, mastodon: 500, linkedin: 3000 }
+export const limitOf = (service: string) => LIMITS[service.toLowerCase()]
+
+export const initials = (name: string) =>
+  name
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('')
+
+// Tone for a crew state word: green when in, red when out or failed, grey while waiting.
+export const stateTone = (state: string): 'ok' | 'err' | 'wait' =>
+  /approved|queued|posted|in$/.test(state) ? 'ok' : /failed|opted|declined|removed/.test(state) ? 'err' : 'wait'

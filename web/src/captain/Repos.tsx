@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listRepos, patchRepo, type ApiError, type Repo } from '../api'
 import Alert from '../components/Alert'
-import Skeleton from '../components/Skeleton'
+import Loader from '../components/Loader'
 import Frame from './Frame'
 import { asError } from './format'
 
@@ -32,7 +32,7 @@ export default function Repos() {
   return (
     <Frame>
       <h1 className="cap-title">Repos</h1>
-      <p className="cap-muted">Launch Crew watches releases on repos you enable. Drafts and prereleases are skipped unless you allow them.</p>
+      <p className="cap-lede">Launch Crew watches releases on repos you enable. Drafts and prereleases are skipped unless you allow them.</p>
       <p>
         <a className="btn btn-primary" href="/github/install/start">
           Install the GitHub App
@@ -42,15 +42,15 @@ export default function Repos() {
       {!repos ? (
         !error && (
           <div aria-busy="true">
-            <Skeleton lines={3} />
+            <Loader label="Loading your repos" />
           </div>
         )
       ) : repos.length === 0 ? (
         <p className="cap-muted">No repos yet. Install the app to pick some.</p>
       ) : (
-        <ul className="cap-list">
+        <ul className="cap-list cap-cards">
           {repos.map((r) => (
-            <li key={r.id} className="cap-repo">
+            <li key={r.id} className="cap-repo panel">
               <span className="cap-mono">{r.fullName}</span>
               <label className="cap-tick">
                 <input

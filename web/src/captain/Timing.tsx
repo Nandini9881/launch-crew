@@ -21,7 +21,7 @@ export default function Timing({ detail, onSave }: Props) {
   }
 
   return (
-    <section className="cap-section" aria-labelledby="cap-timing">
+    <section className="cap-section panel" aria-labelledby="cap-timing">
       <h2 id="cap-timing">Timing</h2>
       {detail.releaseTag && (
         <p>
@@ -31,11 +31,11 @@ export default function Timing({ detail, onSave }: Props) {
       <form className="cap-form" onSubmit={submit}>
         <label className="cap-field">
           Launch moment
-          <input type="datetime-local" value={at} disabled={!editable} onChange={(e) => setAt(e.target.value)} />
+          <input className="field" type="datetime-local" value={at} disabled={!editable} onChange={(e) => setAt(e.target.value)} />
         </label>
         <label className="cap-field">
           Window (minutes)
-          <input type="number" min={1} value={win} disabled={!editable} onChange={(e) => setWin(e.target.value)} />
+          <input className="field" type="number" min={1} value={win} disabled={!editable} onChange={(e) => setWin(e.target.value)} />
         </label>
         {editable && (
           <Button variant="secondary" type="submit">

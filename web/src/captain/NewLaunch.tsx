@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router'
 import { createLaunch, type NewLaunch as Body, type Role } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
+import Pass from '../components/Pass'
 import Frame from './Frame'
 import { asError, fromLocalInput } from './format'
+
+const DAY = (v: string) => (v ? new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'Date TBD')
 
 const MAX_ROLES = 4
 const MAX_NAME = 24
@@ -59,22 +62,24 @@ export default function NewLaunch() {
   return (
     <Frame>
       <h1 className="cap-title">New launch</h1>
-      <form className="cap-form" onSubmit={submit}>
+      <div className="cap-new">
+      <form className="cap-form panel" onSubmit={submit}>
+        <p className="cap-lede">Launch Crew writes one draft per person and holds every one of them until that person approves it.</p>
         <label className="cap-field">
           Title
-          <input type="text" required maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input className="field" type="text" required maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
         </label>
         <label className="cap-field">
           Summary
-          <textarea rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
+          <textarea className="field" rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
         </label>
         <label className="cap-field">
           Launch time
-          <input type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
+          <input className="field" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
         </label>
         <label className="cap-field">
           Window (minutes)
-          <input type="number" min={1} value={win} onChange={(e) => setWin(e.target.value)} />
+          <input className="field" type="number" min={1} value={win} onChange={(e) => setWin(e.target.value)} />
         </label>
         <fieldset className="cap-fieldset">
           <legend>Roles</legend>
@@ -84,6 +89,7 @@ export default function NewLaunch() {
               <label className="cap-field">
                 <span className="visually-hidden">Role {i + 1} name</span>
                 <input
+                  className="field"
                   type="text"
                   placeholder="Name"
                   aria-label={`Role ${i + 1} name`}
@@ -95,6 +101,7 @@ export default function NewLaunch() {
               <label className="cap-field">
                 <span className="visually-hidden">Role {i + 1} hint</span>
                 <input
+                  className="field"
                   type="text"
                   placeholder="Hint, e.g. spoke about"
                   aria-label={`Role ${i + 1} hint`}
@@ -119,6 +126,7 @@ export default function NewLaunch() {
         <label className="cap-field">
           Hero image URL (optional)
           <input
+            className="field"
             type="text"
             inputMode="url"
             value={hero}
@@ -133,6 +141,24 @@ export default function NewLaunch() {
           Create launch
         </Button>
       </form>
+      <aside className="cap-preview" aria-label="Live preview">
+        <span className="cap-kicker">Contributor card</span>
+        <Pass
+          eyebrow={title.trim() || 'Your launch'}
+          name="A contributor"
+          meta={`@handle · ${roles.find((r) => r.name.trim())?.name.trim() || 'Contributor'}`}
+          stub={{ label: 'Pass', value: '#1', date: DAY(at) }}
+        />
+        <p className="cap-muted">A sample. Each person gets their own, rebuilt when the drafts go out.</p>
+        {summary.trim() && (
+          <div className="panel">
+            <span className="cap-kicker">What the crew reads</span>
+            <p className="cap-preview-title">{title.trim() || 'Your launch'}</p>
+            <p className="cap-muted">{summary.trim()}</p>
+          </div>
+        )}
+      </aside>
+      </div>
     </Frame>
   )
 }

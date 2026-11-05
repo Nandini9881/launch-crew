@@ -1,6 +1,7 @@
 import Button from '../components/Button'
 import { serviceName } from '../crew/format'
 import type { Detail, Pr } from '../api'
+import { limitOf } from './format'
 
 type Props = { detail: Detail; pending: boolean; onHidden: (hidden: number[]) => void }
 
@@ -37,7 +38,7 @@ export default function Review({ detail, pending, onHidden }: Props) {
   return (
     <div className="cap-col">
       {detail.source === 'github' && (
-        <section className="cap-section" aria-labelledby="cap-headlines">
+        <section className="cap-section panel" aria-labelledby="cap-headlines">
           <h2 id="cap-headlines">Headline changes</h2>
           {shown.length === 0 ? (
             <p className="cap-muted">No headline changes left. Keep one from the hidden list.</p>
@@ -50,7 +51,7 @@ export default function Review({ detail, pending, onHidden }: Props) {
           )}
         </section>
       )}
-      <section className="cap-section" aria-labelledby="cap-posts">
+      <section className="cap-section panel" aria-labelledby="cap-posts">
         <h2 id="cap-posts">Your posts</h2>
         {posts.length === 0 ? (
           <p className="cap-muted">
@@ -68,13 +69,18 @@ export default function Review({ detail, pending, onHidden }: Props) {
                 </div>
                 {d.note && <p className="cap-muted cap-post-note">{d.note}</p>}
                 <p className="cap-post-text">{d.text}</p>
+                {limitOf(d.service) && (
+                  <span className="cap-count-line cap-muted">
+                    {d.text.length} / {limitOf(d.service)}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
       {hiddenPrs.length > 0 && (
-        <details className="cap-chores">
+        <details className="cap-chores panel">
           <summary>
             {hiddenPrs.length} hidden {hiddenPrs.length === 1 ? 'chore' : 'chores'}
           </summary>

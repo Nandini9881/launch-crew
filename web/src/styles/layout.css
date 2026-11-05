@@ -10,14 +10,14 @@ body {
 
 .shell {
   container-type: inline-size;
-  width: min(100%, 36rem);
+  width: min(100%, 40rem);
   margin-inline: auto;
   padding-inline: clamp(var(--space-md), 5vw, var(--space-lg));
   padding-block: var(--space-lg);
 }
 
 .shell[data-width="captain"] {
-  width: min(100%, 70rem);
+  width: min(100%, 80rem);
 }
 
 .visually-hidden {

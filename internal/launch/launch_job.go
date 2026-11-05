@@ -362,3 +362,11 @@ func contributorCard(ctx context.Context, d Deps, s *state, m sqlc.CrewMember) (
 	m.CardAssetID = uuid.NullUUID{UUID: a.ID, Valid: true}
 	return m, nil
 }
+
+// titleCase upper-cases the first letter of a role word, as the card prints it.
+func titleCase(role string) string {
+	if role == "" {
+		return ""
+	}
+	return strings.ToUpper(role[:1]) + role[1:]
+}

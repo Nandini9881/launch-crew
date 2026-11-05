@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Button from '../components/Button'
 import type { CrewRow, Detail } from '../api'
-import { copy } from './format'
+import { copy, initials, stateTone } from './format'
 
 type Props = { detail: Detail; pending: boolean; onTicked: (ids: string[]) => void }
 
@@ -31,7 +31,7 @@ export default function Crew({ detail, pending, onTicked }: Props) {
     onTicked([...ticked])
   }
   return (
-    <section className="cap-section" aria-labelledby="cap-crew">
+    <section className="cap-section panel" aria-labelledby="cap-crew">
       <h2 id="cap-crew">Crew</h2>
       <p className="cap-muted">
         {detail.counts.in} of {detail.counts.total} in
@@ -51,17 +51,20 @@ export default function Crew({ detail, pending, onTicked }: Props) {
                   {c.name}
                 </label>
               ) : (
-                <span>{c.name}</span>
+                <span className="cap-person">
+                  <span className="cap-avatar" aria-hidden="true">{initials(c.name)}</span>
+                  {c.name}
+                </span>
               )}
               <span className="cap-muted">{c.role}</span>
               {c.commentFailed ? (
                 c.inviteUrl ? (
                   <CopyLink url={c.inviteUrl} label="comment failed · copy link" />
                 ) : (
-                  <span className="cap-state">comment failed</span>
+                  <span className="cap-state cap-state-err">comment failed</span>
                 )
               ) : (
-                <span className="cap-state">{c.state.replaceAll("_", " ")}</span>
+                <span className={`cap-state cap-state-${stateTone(c.state)}`}>{c.state.replaceAll("_", " ")}</span>
               )}
             </li>
           ))}
@@ -71,7 +74,7 @@ export default function Crew({ detail, pending, onTicked }: Props) {
         <div className="cap-addlink">
           <label>
             Add by link
-            <input readOnly value={detail.openUrl} onFocus={(e) => e.currentTarget.select()} />
+            <input className="field cap-mono-field" readOnly value={detail.openUrl} onFocus={(e) => e.currentTarget.select()} />
           </label>
           <CopyLink url={detail.openUrl} label="Copy link" />
         </div>

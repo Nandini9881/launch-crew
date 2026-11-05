@@ -6,17 +6,18 @@ import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Chip from '../components/Chip'
 import DraftBox from '../components/DraftBox'
-import Shell from '../components/Shell'
-import Skeleton from '../components/Skeleton'
+import Loader from '../components/Loader'
+import Pass from '../components/Pass'
 import VoiceCard, { type VoiceEdit } from '../components/VoiceCard'
-import Wordmark from '../components/Wordmark'
 import Results from './Results'
-import { Dead, Foreign, Footer, useInvite } from './shared'
+import { CrewFrame, Dead, Foreign, useInvite } from './shared'
 import { useDrafts } from './useDrafts'
 
 const LIMITS: Record<string, number> = { x: 280, twitter: 280, threads: 500, bluesky: 300, mastodon: 500, linkedin: 3000 }
 const TIMING: Record<Timing, string> = { window: 'Land in the window', queue: 'next free slot', draft: 'save as draft' }
 const BUSY = 'Buffer is not answering, try again'
+
+const passDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
 function TrustStrip({ memberId, token }: { memberId?: string; token: string }) {
   const navigate = useNavigate()
@@ -132,11 +133,10 @@ export default function Approve() {
   if (invite?.foreign) return <Foreign releaseUrl={invite.launch.releaseUrl} />
   if (fail?.code === 'already_claimed') {
     return (
-      <Shell width="person">
-        <Wordmark />
+      <CrewFrame>
         <h1 className="crew-title">This invite is taken</h1>
-        <p>{fail.message}</p>
-      </Shell>
+        <p className="crew-lede">{fail.message}</p>
+      </CrewFrame>
     )
   }
   if (fail && fail.status !== 502 && fail.status !== 401 && fail.code !== 'verify_first') return <Dead code={fail.code} />
@@ -211,27 +211,39 @@ export default function Approve() {
 
   if (fail?.status === 502) {
     return (
-      <Shell width="person">
-        <Wordmark />
+      <CrewFrame footer>
         <Alert tone="error">
           {BUSY}. <Button variant="secondary" onClick={() => setRetry((n) => n + 1)}>Try again</Button>
         </Alert>
-        <Footer />
-      </Shell>
+      </CrewFrame>
     )
   }
 
   return (
-    <Shell width="person">
-      <Wordmark />
+    <CrewFrame version={invite?.launch.version} footer>
+      {invite?.card && (
+        <span className="eyebrow crew-eyebrow">
+          {invite.launch.project} {invite.launch.version}
+        </span>
+      )}
       <h1 className="crew-title">{invite?.launch.title}</h1>
+      {invite && (
+        invite.card ? (
+          <img className="card card-img" src={invite.card.url} alt={invite.card.alt} />
+        ) : (
+          <Pass
+            eyebrow={invite.launch.project}
+            name={invite.member.name}
+            meta={invite.member.role}
+            stub={{ label: 'Pass', value: invite.launch.version || '·', date: passDate(invite.launch.launchAt) }}
+          />
+        )
+      )}
+      <div className="perf perf-h crew-perf" aria-hidden="true" />
       {message && <Alert tone="error">{message}</Alert>}
-      <div aria-busy={!data || undefined}>
+      <div className="crew-stack" aria-busy={!data || undefined}>
         {!data ? (
-          <>
-            <Skeleton lines={5} />
-            <Skeleton lines={1} />
-          </>
+          <Loader label="Building your post" hint="Nothing is queued yet. You see the draft first, and nothing posts until you tap approve." />
         ) : !eligible ? (
           <CopyPath text={data.drafts[0]?.text ?? invite?.copyText ?? ''} token={token} />
         ) : (
@@ -331,7 +343,6 @@ export default function Approve() {
         </>
       )}
       <TrustStrip memberId={memberId} token={token} />
-      <Footer />
-    </Shell>
+    </CrewFrame>
   )
 }

@@ -1,8 +1,14 @@
+.cap-page {
+  min-block-size: 100vh;
+  padding-block: var(--space-md) var(--space-2xl);
+}
+
 .cap-skip {
   position: absolute;
   inset-inline-start: var(--space-md);
   inset-block-start: calc(-1 * var(--space-3xl));
   padding: var(--space-sm) var(--space-md);
+  border-radius: var(--rounded-sm);
   background-color: var(--color-surface);
   color: var(--color-text);
 }
@@ -12,55 +18,39 @@
   z-index: 1;
 }
 
-.cap-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-md);
-  inline-size: min(100%, 70rem);
+.cap-top {
+  inline-size: min(100%, 80rem);
   margin-inline: auto;
   padding-inline: clamp(var(--space-md), 5vw, var(--space-lg));
-  padding-block: var(--space-md);
-  border-block-end: 1px solid var(--color-hairline);
   box-sizing: border-box;
-}
-
-.cap-brand {
-  margin-inline-end: auto;
-  color: var(--color-text);
-  text-decoration: none;
-}
-
-.cap-nav {
-  display: flex;
-  gap: var(--space-md);
-}
-
-.cap-nav a,
-.cap-account summary {
-  display: inline-flex;
-  align-items: center;
-  min-block-size: 44px;
-  color: var(--color-text);
-  cursor: pointer;
 }
 
 .cap-account {
   position: relative;
 }
 
+.cap-account summary {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding-inline: var(--space-md);
+  border-radius: var(--rounded-full);
+  background-color: var(--color-tint);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
 .cap-account-menu {
   position: absolute;
   inset-inline-end: 0;
-  z-index: 1;
+  z-index: 2;
   display: grid;
   min-inline-size: 10rem;
+  margin-block-start: var(--space-sm);
   padding: var(--space-sm);
-  border-width: 1px;
-  border-style: solid;
-  border-color: var(--color-hairline);
-  border-radius: var(--rounded-md);
+  border-radius: var(--rounded-sm);
   background-color: var(--color-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .cap-account-menu a {
@@ -71,32 +61,66 @@
   color: var(--color-text);
 }
 
+.cap-footer {
+  inline-size: min(100%, 80rem);
+  margin-inline: auto;
+  padding-inline: clamp(var(--space-md), 5vw, var(--space-lg));
+  box-sizing: border-box;
+}
+
 .cap-title {
   margin-block: var(--space-md);
   font-family: var(--font-display);
   font-size: var(--type-heading-size);
   font-weight: var(--type-heading-weight);
+  letter-spacing: var(--type-heading-tracking);
   line-height: var(--type-heading-leading);
 }
 
+.cap-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.cap-lede {
+  margin-block: 0 var(--space-md);
+  color: var(--color-text-muted);
+  font-size: var(--type-draft-size);
+  line-height: var(--type-draft-leading);
+  max-inline-size: 54ch;
+}
+
 .cap-section {
-  margin-block-end: var(--space-xl);
+  margin-block-end: var(--space-lg);
 }
 
 .cap-section h2 {
   margin-block: 0 var(--space-sm);
   font-family: var(--font-display);
-  font-size: var(--type-draft-size);
+  font-size: calc(var(--type-body-size) * 1.25);
+  font-weight: 600;
+}
+
+.cap-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
 }
 
 .cap-grid {
   display: grid;
-  gap: var(--space-xl);
+  gap: var(--space-lg);
 }
 
 @container (min-width: 52rem) {
   .cap-grid {
     grid-template-columns: 7fr 5fr;
+    align-items: start;
   }
 }
 
@@ -136,10 +160,202 @@
   color: var(--color-text);
 }
 
-.cap-pr,
-.cap-crew-row,
+/* Status chips: one soft pill vocabulary for launches, checks and states. */
+.cap-chip {
+  display: inline-flex;
+  align-items: center;
+  padding-block: var(--space-xs);
+  padding-inline: var(--space-ms);
+  border-radius: var(--rounded-full);
+  background-color: var(--color-tint);
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+}
+
+.cap-chip-draft,
+.cap-chip-launched,
+.cap-chip-ok {
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.cap-chip-ok {
+  background-color: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.cap-chip-warn {
+  background-color: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface));
+  color: var(--color-warning);
+}
+
+/* Launch cards */
+.cap-cards {
+  display: grid;
+  gap: var(--space-md);
+}
+
 .cap-launch,
 .cap-repo {
+  position: relative;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.cap-launch-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.cap-count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: calc(var(--type-body-size) * 1.125);
+  font-variant-numeric: tabular-nums;
+}
+
+.cap-launch-title {
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--type-heading-size);
+  font-weight: 700;
+  letter-spacing: var(--type-heading-tracking);
+  line-height: var(--type-heading-leading);
+  text-decoration: none;
+}
+
+/* Make the whole card the link. */
+.cap-launch-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--rounded-lg);
+}
+
+.cap-launch-title:focus-visible {
+  outline: none;
+}
+
+.cap-launch-title:focus-visible::after {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.cap-repo {
+  grid-template-columns: 1fr;
+}
+
+@container (min-width: 40rem) {
+  .cap-repo {
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+  }
+}
+
+/* Empty state */
+.cap-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xl);
+  margin-block-start: var(--space-md);
+  padding: var(--space-2xl);
+}
+
+.cap-empty-copy {
+  flex: 999 1 22rem;
+  min-inline-size: 0;
+}
+
+.cap-ghost {
+  flex: 0 1 21rem;
+  display: flex;
+  min-inline-size: 0;
+  border-width: 2px;
+  border-style: dashed;
+  border-color: var(--color-hairline);
+  border-radius: var(--rounded-md);
+  background-color: var(--color-field);
+  overflow: hidden;
+
+  --perf-ground: var(--color-surface);
+  --color-pass-line: var(--color-hairline);
+}
+
+.cap-ghost-main,
+.cap-ghost-side {
+  display: grid;
+  align-content: center;
+  gap: var(--space-ms);
+  padding: var(--space-lg);
+}
+
+.cap-ghost-main {
+  flex: 1;
+}
+
+.cap-ghost-side {
+  flex: 0 0 6rem;
+}
+
+.cap-ghost-bar,
+.cap-ghost-block {
+  display: block;
+  border-radius: var(--rounded-full);
+  background-color: var(--color-hairline);
+  block-size: var(--space-sm);
+  inline-size: 60%;
+}
+
+.cap-ghost-block {
+  border-radius: var(--rounded-sm);
+  block-size: var(--space-lg);
+  inline-size: 85%;
+}
+
+/* Launch detail */
+.cap-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-md);
+  margin-block: var(--space-md) var(--space-lg);
+  padding: 0;
+  list-style: none;
+}
+
+.cap-step {
+  display: grid;
+  gap: var(--space-xs);
+  padding-block-start: var(--space-ms);
+  border-block-start: 2px solid var(--color-hairline);
+  color: var(--color-text-muted);
+}
+
+.cap-step strong {
+  color: var(--color-text);
+  font-size: var(--type-small-size);
+}
+
+.cap-step-done {
+  border-block-start-color: var(--color-text);
+}
+
+.cap-step-now {
+  border-block-start-width: 4px;
+  border-block-start-color: var(--color-accent);
+}
+
+.cap-step-now strong {
+  color: var(--color-accent-strong);
+}
+
+.cap-pr,
+.cap-crew-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -149,9 +365,24 @@
   border-block-end: 1px solid var(--color-hairline);
 }
 
-.cap-launch {
-  flex-direction: column;
-  align-items: flex-start;
+.cap-person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-ms);
+  font-weight: 600;
+}
+
+.cap-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border-radius: var(--rounded-full);
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  font-size: var(--type-label-size);
+  font-weight: 600;
 }
 
 .cap-post {
@@ -167,9 +398,16 @@
 
 .cap-post-text {
   margin-block: var(--space-xs) 0;
-  font-size: var(--type-body-size);
+  font-size: var(--type-draft-size);
+  line-height: var(--type-draft-leading);
   white-space: pre-wrap;
   overflow-wrap: anywhere; /* long links must not scroll the page sideways */
+}
+
+.cap-count-line {
+  display: block;
+  margin-block-start: var(--space-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .cap-chores summary {
@@ -178,8 +416,23 @@
 }
 
 .cap-state {
-  font-family: var(--font-mono);
-  font-size: var(--type-mono-size);
+  padding-block: var(--space-xs);
+  padding-inline: var(--space-ms);
+  border-radius: var(--rounded-full);
+  background-color: var(--color-tint);
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+}
+
+.cap-state-ok {
+  background-color: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.cap-state-err {
+  background-color: color-mix(in srgb, var(--color-error) 12%, var(--color-surface));
+  color: var(--color-error);
 }
 
 .cap-tick {
@@ -189,36 +442,55 @@
   min-block-size: 44px;
 }
 
+.cap-launch-btn {
+  inline-size: 100%;
+  margin-block-start: var(--space-md);
+}
+
+.cap-reassure {
+  margin-block: var(--space-sm) 0;
+  text-align: center;
+}
+
+/* Forms */
+.cap-new {
+  display: grid;
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@container (min-width: 58rem) {
+  .cap-new {
+    grid-template-columns: 1fr minmax(0, 25rem);
+  }
+}
+
 .cap-form {
   display: grid;
   gap: var(--space-md);
-  max-inline-size: 36rem;
+  align-content: start;
+}
+
+.cap-section .cap-form {
+  padding: 0;
+  box-shadow: none;
 }
 
 .cap-field {
   display: grid;
   gap: var(--space-xs);
-  color: var(--color-text-muted);
-  font-size: var(--type-small-size);
-}
-
-.cap-field input,
-.cap-field textarea,
-.cap-addlink input {
-  min-block-size: 44px;
-  padding-inline: var(--space-ms);
-  border-width: 1px;
-  border-style: solid;
-  border-color: var(--color-hairline);
-  border-radius: var(--rounded-sm);
-  background-color: var(--color-surface);
   color: var(--color-text);
-  font-family: var(--font-body);
-  font-size: var(--type-body-size);
+  font-size: var(--type-small-size);
+  font-weight: 600;
 }
 
 .cap-field textarea {
-  padding-block: var(--space-sm);
+  resize: vertical;
+}
+
+.cap-mono-field {
+  font-family: var(--font-mono);
+  font-size: var(--type-mono-size);
 }
 
 .cap-fieldset {
@@ -227,6 +499,12 @@
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.cap-fieldset legend {
+  padding: 0;
+  font-size: var(--type-small-size);
+  font-weight: 600;
 }
 
 .cap-role {
@@ -244,9 +522,25 @@
   font-size: var(--type-small-size);
 }
 
-.cap-addlink input {
-  inline-size: 100%;
-  font-family: var(--font-mono);
+.cap-preview {
+  display: grid;
+  gap: var(--space-ms);
+  align-content: start;
+}
+
+.cap-kicker {
+  color: var(--color-text-muted);
+  font-size: var(--type-label-size);
+  font-weight: 600;
+  letter-spacing: var(--type-label-tracking);
+  text-transform: uppercase;
+}
+
+.cap-preview-title {
+  margin-block: var(--space-xs);
+  font-family: var(--font-display);
+  font-size: calc(var(--type-body-size) * 1.125);
+  font-weight: 700;
 }
 
 .cap-actions,
@@ -257,8 +551,8 @@
   margin-block: var(--space-md);
 }
 
-.cap-empty {
-  padding-block: var(--space-xl);
+.cap-head .cap-actions {
+  margin-block: 0;
 }
 
 @container (width < 30rem) {
@@ -273,4 +567,8 @@
 
 .cap-post-note {
   margin-block: var(--space-xs) 0;
+}
+
+.cap-pr .btn-ghost {
+  padding-inline: 0;
 }

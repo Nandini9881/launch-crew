@@ -10,7 +10,7 @@ import './crew.css'
 const SIDE = 800
 const MARK = 0.12
 
-// QR with error correction H and the vermilion square over the centre.
+// QR with error correction H and the accent square over the centre.
 async function paint(canvas: HTMLCanvasElement, text: string) {
   await QRCode.toCanvas(canvas, text, {
     errorCorrectionLevel: 'H',
@@ -28,7 +28,7 @@ async function paint(canvas: HTMLCanvasElement, text: string) {
   const mid = canvas.width / 2
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(mid - halo / 2, mid - halo / 2, halo, halo)
-  ctx.fillStyle = getComputedStyle(canvas).getPropertyValue('--color-accent').trim() || '#e4572e'
+  ctx.fillStyle = getComputedStyle(canvas).getPropertyValue('--color-accent').trim() || '#4a45d1'
   ctx.fillRect(mid - size / 2, mid - size / 2, size, size)
 }
 

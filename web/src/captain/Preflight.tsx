@@ -18,8 +18,15 @@ export default function Preflight({ checks, launched, busy, error, onLaunch }: P
   const red = redCount(checks)
   const label = launched ? 'Launched' : red > 0 ? `Launch · ${red} check${red === 1 ? '' : 's'} left` : 'Launch'
   return (
-    <section className="cap-section" aria-labelledby="cap-preflight">
-      <h2 id="cap-preflight">Preflight</h2>
+    <section className="cap-section cap-preflight panel" aria-labelledby="cap-preflight">
+      <div className="cap-section-head">
+        <h2 id="cap-preflight">Preflight</h2>
+        {checks.length > 0 && (
+          <span className={red > 0 ? 'cap-chip cap-chip-warn' : 'cap-chip cap-chip-ok'}>
+            {checks.length - red}/{checks.length} ready
+          </span>
+        )}
+      </div>
       {checks.length > 0 && (
         <ol className="cap-list">
           {checks.map((c) => (
@@ -28,9 +35,10 @@ export default function Preflight({ checks, launched, busy, error, onLaunch }: P
         </ol>
       )}
       {error && <Alert tone="error">{error}</Alert>}
-      <Button variant="primary" disabled={launched || red > 0 || busy} busy={busy} onClick={onLaunch}>
+      <Button variant="primary" className="cap-launch-btn" disabled={launched || red > 0 || busy} busy={busy} onClick={onLaunch}>
         {label}
       </Button>
+      {!launched && <p className="cap-muted cap-reassure">Nothing posts until each person taps approve.</p>}
     </section>
   )
 }

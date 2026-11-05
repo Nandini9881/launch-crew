@@ -76,24 +76,32 @@ func TestNoPresetIsPurple(t *testing.T) {
 	}
 }
 
-func TestPresetForIsStable(t *testing.T) {
-	// Pinned: changing the hash input or modulus would re-colour every launch.
-	pinned := map[string]string{
-		"6f1c1f0e-3a8e-4f8a-9d57-0a1b2c3d4e5f": "vermilion",
-		"00000000-0000-4000-8000-000000000001": "teal",
-		"c0ffee00-1234-4abc-8def-0123456789ab": "orange",
-	}
-	for id, want := range pinned {
-		if got := PresetFor(uuid.MustParse(id)).Name; got != want {
-			t.Errorf("PresetFor(%s) = %s, want %s", id, got, want)
+func TestPresetForIsTheInkPass(t *testing.T) {
+	// Every launch gets the ink boarding pass; the other presets only exist so
+	// stored indexes of earlier launches still resolve.
+	for i := range 50 {
+		got := PresetFor(uuid.NewSHA1(uuid.NameSpaceOID, []byte{byte(i)}))
+		if got.Name != "ink" || got != Presets[inkPreset] {
+			t.Fatalf("PresetFor = %v, want the ink preset", got)
 		}
 	}
-	seen := map[string]bool{}
-	for i := range 400 {
-		seen[PresetFor(uuid.NewSHA1(uuid.NameSpaceOID, []byte{byte(i), byte(i >> 8)})).Name] = true
+	if got := Presets[inkPreset]; got.Field != "#15181F" || got.Eyebrow != "#ADA9FF" {
+		t.Errorf("ink preset = %+v", got)
 	}
-	if len(seen) != len(Presets) {
-		t.Errorf("400 ids hit %d presets, want %d", len(seen), len(Presets))
+}
+
+func TestInkPassQuietTextIsReadable(t *testing.T) {
+	p := Presets[inkPreset]
+	for name, fg := range map[string]string{"eyebrow": p.eyebrow(), "muted": p.muted()} {
+		if got := Contrast(fg, p.Field); got < 7.0 {
+			t.Errorf("%s %s on %s = %.2f, want >= 7", name, fg, p.Field, got)
+		}
+	}
+	// Derived tints on every other preset stay legible too.
+	for _, q := range Presets {
+		if got := Contrast(q.muted(), q.Field); got < 4.5 {
+			t.Errorf("%s muted text = %.2f, want >= 4.5", q.Name, got)
+		}
 	}
 }
 
@@ -128,7 +136,7 @@ func TestAvatarOverSizeRefused(t *testing.T) {
 	}
 }
 
-var goldenPreset = Presets[0]
+var goldenPreset = Presets[inkPreset]
 
 func compareGolden(t *testing.T, name string, got []byte) {
 	t.Helper()
@@ -187,15 +195,15 @@ func TestLongAndCJKNamesWrap(t *testing.T) {
 	long := strings.Repeat("abcdefghi ", 6)[:60]
 	for _, s := range []string{long, strings.Repeat("W", 60), strings.Repeat("wide words here ", 12)} {
 		lines, size := fitTitle(fs.display, s, 1056)
-		if len(lines) == 0 || len(lines) > 3 {
+		if len(lines) == 0 || len(lines) > 2 {
 			t.Errorf("%q: %d lines", s[:10], len(lines))
 		}
-		if size != 64 && size != 72 {
+		if size != 64 && size != 80 {
 			t.Errorf("size %v", size)
 		}
 	}
-	if lines, size := fitTitle(fs.display, "Ada", 1056); len(lines) != 1 || size != 72 {
-		t.Errorf("short title = %v @%v, want 1 line at 72", lines, size)
+	if lines, size := fitTitle(fs.display, "Ada", 1056); len(lines) != 1 || size != 80 {
+		t.Errorf("short title = %v @%v, want 1 line at 80", lines, size)
 	}
 	if got := keepGlyphs(fs.display, "山田太郎"); got != "" {
 		t.Errorf("CJK kept: %q", got)
@@ -226,6 +234,9 @@ func solid(c color.Color) []byte {
 	return buf.Bytes()
 }
 
+// Centre of the avatar circle in the bottom row.
+const avatarCx, avatarCy = pad + avatarSize/2, 482 + avatarSize/2 - 8
+
 func TestMissingAvatarUsesPlaceholder(t *testing.T) {
 	red := color.RGBA{255, 0, 0, 255}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +256,7 @@ func TestMissingAvatarUsesPlaceholder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return decodePNG(t, b).At(120, 120)
+		return decodePNG(t, b).At(avatarCx, avatarCy)
 	}
 	field := hexColor(goldenPreset.Field)
 	typ := hexColor(goldenPreset.Type)
@@ -266,6 +277,49 @@ func TestMissingAvatarUsesPlaceholder(t *testing.T) {
 	}
 	if got := centre(srv.URL + "/ok.png"); !near(got, red) {
 		t.Errorf("fetched avatar centre %v, want red", got)
+	}
+}
+
+func TestHeroSitsBehindTheCardAndTextStaysReadable(t *testing.T) {
+	white := image.NewRGBA(image.Rect(0, 0, 400, 300))
+	draw.Draw(white, white.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	b, err := Render(ContributorCard{Name: "Ada", Project: "p", Version: "v1", Hero: white}, goldenPreset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decodePNG(t, b)
+	if bd := img.Bounds(); bd.Dx() != 1200 || bd.Dy() != 630 {
+		t.Fatalf("size %v", bd)
+	}
+	// A pure white hero under the wash must come out dark: text on it is white.
+	r, g, bl, _ := img.At(600, 560).RGBA()
+	if lum := (float64(r) + float64(g) + float64(bl)) / 3 / 257; lum > 90 {
+		t.Errorf("hero background luminance %.0f, want a dark wash over the hero", lum)
+	}
+	// And the hero changes the card: no hero gives the flat ink field there.
+	plain, _ := Render(ContributorCard{Name: "Ada", Project: "p", Version: "v1"}, goldenPreset)
+	if bytes.Equal(b, plain) {
+		t.Error("hero had no effect")
+	}
+}
+
+func TestPerforationNotchesAreCutAtTheEdges(t *testing.T) {
+	b, err := Render(ContributorCard{Name: "Ada", Project: "p", Version: "v1"}, goldenPreset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decodePNG(t, b)
+	px := mainW + perfW/2
+	want := hexColor(ground)
+	for _, y := range []int{1, cardH - 2} {
+		r, g, bl, _ := img.At(px, y).RGBA()
+		if uint8(r>>8) != want.R || uint8(g>>8) != want.G || uint8(bl>>8) != want.B {
+			t.Errorf("notch at y=%d is %v, want ground %v", y, img.At(px, y), want)
+		}
+	}
+	// Mid-height, away from the dashes' gaps, the field colour is back.
+	if r, _, _, _ := img.At(px+60, cardH/2).RGBA(); r>>8 > 0x60 {
+		t.Errorf("stub background not ink: %v", img.At(px+60, cardH/2))
 	}
 }
 
