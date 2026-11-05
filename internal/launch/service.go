@@ -123,13 +123,22 @@ type Summary struct {
 	WindowMinutes int        `json:"windowMinutes"`
 	OpenCount     int        `json:"openCount"`
 	CreatedAt     time.Time  `json:"createdAt"`
+	// Repo is the full repo name of a GitHub launch, empty for a manual one.
+	Repo string `json:"repo"`
+	// PRCount is the headline changes that are not hidden.
+	PRCount int `json:"prCount"`
+	// CrewIn and CrewTotal count the crew as Detail's counts do; the captain is not crew.
+	CrewIn    int `json:"crewIn"`
+	CrewTotal int `json:"crewTotal"`
+	// CrewInitials is up to five crew members' initials, people who are in first.
+	CrewInitials []string `json:"crewInitials"`
 }
 
 func summaryOf(l sqlc.Launch) Summary {
 	return Summary{
 		ID: l.ID, Status: l.Status, Source: l.Source, Title: l.Title, ReleaseTag: l.ReleaseTag.String,
 		LaunchAt: timePtr(l.LaunchAt), WindowMinutes: int(l.WindowMinutes), OpenCount: int(l.OpenCount),
-		CreatedAt: l.CreatedAt.Time.UTC(),
+		CreatedAt: l.CreatedAt.Time.UTC(), CrewInitials: []string{},
 	}
 }
 
@@ -149,8 +158,13 @@ func List(ctx context.Context, d Deps, userID uuid.UUID) ([]Summary, error) {
 		return nil, fmt.Errorf("launch: list: %w", err)
 	}
 	out := make([]Summary, 0, len(ls))
-	for _, r := range ls {
+	launches := make([]sqlc.Launch, len(ls))
+	for i, r := range ls {
+		launches[i] = r.Launch
 		out = append(out, summaryOf(r.Launch))
+	}
+	if err := withCrew(ctx, d, launches, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -202,6 +216,10 @@ func CreateManual(ctx context.Context, d Deps, ownerID uuid.UUID, in trigger.Man
 			return Summary{}, "", err
 		}
 	}
+	logo, err := prepareLogo(ctx, d, in.QRLogo, in.QRLogoURL)
+	if err != nil {
+		return Summary{}, "", err
+	}
 	roles, err := json.Marshal(spec.Roles)
 	if err != nil {
 		return Summary{}, "", err
@@ -245,6 +263,9 @@ func CreateManual(ctx context.Context, d Deps, ownerID uuid.UUID, in trigger.Man
 		if err := q.SetLaunchHeroAsset(ctx, sqlc.SetLaunchHeroAssetParams{ID: l.ID, HeroAssetID: uuid.NullUUID{UUID: a.ID, Valid: true}}); err != nil {
 			return Summary{}, "", err
 		}
+	}
+	if err := writeLogo(ctx, d, tx, q, l.ID, logo); err != nil {
+		return Summary{}, "", err
 	}
 	idx := presetIndex(preset)
 	if err := q.SetLaunchCardPreset(ctx, sqlc.SetLaunchCardPresetParams{ID: l.ID, CardPreset: pgtype.Int2{Int16: idx, Valid: true}}); err != nil {

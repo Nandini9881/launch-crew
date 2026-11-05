@@ -19,6 +19,8 @@
   --color-pass-meta: #b9c0ce;
   --color-pass-stub: #8a91a1;
   --color-pass-line: #3a3f4c;
+  --color-pass-bg: #15181f;
+  --color-pass-edge: #15181f;
   --color-on-accent: #ffffff;
   --color-success: #0e7a5f;
   --color-success-soft: #eaf6f1;
@@ -105,6 +107,8 @@
   --color-success-soft: #16342b;
   --color-warning: #d8a740;
   --color-error: #ff8a74;
+  --color-pass-bg: #0b0d12;
+  --color-pass-edge: #343a48;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -129,6 +133,8 @@
     --color-success-soft: #16342b;
     --color-warning: #d8a740;
     --color-error: #ff8a74;
+    --color-pass-bg: #0b0d12;
+    --color-pass-edge: #343a48;
   }
 }
 

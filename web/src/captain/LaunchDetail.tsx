@@ -7,7 +7,7 @@ import Loader from '../components/Loader'
 import Plane from '../components/Plane'
 import Crew from './Crew'
 import Frame from './Frame'
-import { asError, stamp } from './format'
+import { asError, moment, plusMinutes, stamp, stateTone, until, zone } from './format'
 import Preflight from './Preflight'
 import Review from './Review'
 import Timing from './Timing'
@@ -17,11 +17,12 @@ type Step = { name: string; note: string; state: 'done' | 'now' | 'next' }
 
 // Where the launch is: release in, drafts built, crew joining, then the launch itself.
 function Steps({ detail, launched }: { detail: Detail; launched: boolean }) {
-  const built = detail.captainDrafts.length > 0
+  const mine = detail.captainDrafts.filter((d) => d.status !== 'skipped')
+  const built = mine.length > 0
   const crewing = detail.crew.length > 0
   const raw = [
     { name: detail.source === 'github' ? 'Release detected' : 'Launch created', note: detail.releaseTag || 'by hand', done: true },
-    { name: 'Drafts built', note: built ? `${detail.captainDrafts.length} of yours` : 'building', done: built || launched },
+    { name: 'Drafts built', note: built ? `${mine.length} of yours` : 'building', done: built || launched },
     { name: 'Crew joining', note: `${detail.counts.in} of ${detail.counts.total} in`, done: launched },
     { name: 'Launch', note: detail.launchAt ? stamp(detail.launchAt) : 'time not set', done: launched },
   ]
@@ -64,9 +65,72 @@ function Steps({ detail, launched }: { detail: Detail; launched: boolean }) {
   )
 }
 
+const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+
+// The launch's pass: what it is, who is in, and when the window opens.
+function Hero({ detail, launched }: { detail: Detail; launched: boolean }) {
+  const closed = detail.status === 'closed'
+  const crewing = detail.crew.length > 0
+  const chip = closed ? 'Closed' : launched ? 'Posting' : crewing ? 'Crew approving' : 'Draft'
+  const prs = detail.source === 'github' ? detail.headlines.filter((p) => !p.hidden).length : 0
+  const approved = detail.crew.filter((c) => stateTone(c.state) === 'ok').length
+  const drafting = detail.crew.filter((c) => c.state === 'drafting').length
+  const invited = detail.crew.filter((c) => c.state === 'invited').length
+  // The captain is always in their own crew, and their posts are drafted for them.
+  const facts = [
+    prs > 0 && plural(prs, 'PR'),
+    `${detail.counts.total + 1} crew`,
+    `${approved + 1} approved`,
+    drafting > 0 && `${drafting} drafting`,
+    invited > 0 && `${invited} invited`,
+  ].filter(Boolean) as string[]
+
+  let label = 'Window opens in'
+  let big = ''
+  if (closed) {
+    label = 'Window'
+    big = 'Posted'
+  } else if (launched) {
+    const close = detail.launchAt ? until(plusMinutes(detail.launchAt, detail.windowMinutes)) : ''
+    label = close ? 'Window closes in' : 'Window'
+    big = close || 'Posted'
+  } else if (!detail.launchAt) {
+    big = 'Pick a launch time'
+  } else {
+    big = until(detail.launchAt) || 'Pick a later time'
+  }
+  return (
+    <section className="cap-hero" aria-label="Launch summary">
+      <div className="cap-hero-main">
+        <span className="cap-hero-chip">
+          <span className="cap-hero-dot" aria-hidden="true" />
+          {chip}
+        </span>
+        <h1 className="cap-title cap-hero-title">{detail.title}</h1>
+        <ul className="cap-hero-facts">
+          {facts.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+      </div>
+      <div className="perf perf-v cap-hero-perf" aria-hidden="true" />
+      <div className="perf perf-h cap-hero-perf-h" aria-hidden="true" />
+      <div className="cap-hero-side">
+        <span className="cap-eyebrow">{label}</span>
+        <span className={big.length > 10 ? 'cap-hero-big cap-hero-big-small' : 'cap-hero-big'}>{big}</span>
+        {detail.launchAt && (
+          <span className="cap-hero-when">
+            {moment(detail.launchAt)} · {zone()}
+          </span>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export default function LaunchDetail() {
   const id = useParams().id ?? ''
-  const { detail, error, reload, patch, editDraft } = useLaunch(id)
+  const { detail, error, reload, patch, editDraft, skipDraft } = useLaunch(id)
   const [pending, setPending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string>()
@@ -140,7 +204,7 @@ export default function LaunchDetail() {
           </Alert>
         </div>
       ))}
-      <h1 className="cap-title">{detail.title}</h1>
+      <Hero detail={detail} launched={launched} />
       {launched && (
         <p className="cap-muted">
           Launched · {detail.counts.in} of {detail.counts.total} in · {detail.openCount} scanned
@@ -155,6 +219,7 @@ export default function LaunchDetail() {
             pending={pending}
             onHidden={(hiddenPrs) => save({ hiddenPrs })}
             onEditDraft={(draftId, text) => editDraft(draftId, text)}
+            onSkipDraft={(draftId, skipped) => skipDraft(draftId, skipped)}
           />
           <Crew detail={detail} pending={pending} onTicked={(tickedCrew) => save({ tickedCrew })} />
         </div>
@@ -168,13 +233,27 @@ export default function LaunchDetail() {
             onLaunch={launch}
           />
           {manual && detail.status === 'draft' && (
-            <p className="cap-muted">Link, slide and PNG appear after Launch.</p>
+            <p className="cap-muted cap-hint">Link, slide and PNG appear after Launch.</p>
           )}
           {manual && detail.showUrl && (
-            <p className="cap-links">
-              <a href={detail.showUrl}>Show at the event</a>
-              <a href={detail.pngUrl} download>Download PNG</a>
-            </p>
+            <section className="cap-section panel cap-share" aria-labelledby="cap-share">
+              <h2 id="cap-share">Share at the event</h2>
+              <div className="cap-share-row">
+                <a className="btn btn-secondary" href={detail.showUrl}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="12" rx="2" />
+                    <path d="M8 20h8M12 16v4" />
+                  </svg>
+                  Show at the event
+                </a>
+                <a className="btn btn-secondary" href={detail.pngUrl} download>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14" />
+                  </svg>
+                  Download PNG
+                </a>
+              </div>
+            </section>
           )}
         </div>
       </div>

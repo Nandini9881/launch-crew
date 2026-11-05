@@ -7,3 +7,12 @@ test('chip is a labelled checkbox with reason when disabled', () => {
   expect(box).toBeDisabled()
   expect(box).toHaveAttribute('type', 'checkbox')
 })
+
+test('chip names the network beside the account and keeps the icon decorative', () => {
+  const { container } = render(
+    <Chip label="JobHigh5" meta="LinkedIn" icon={<svg />} checked onChange={() => {}} />,
+  )
+  expect(screen.getByLabelText('JobHigh5 · LinkedIn')).toBeChecked()
+  expect(container.querySelector('.chip-icon')).toHaveAttribute('aria-hidden', 'true')
+  expect(container.querySelector('.chip-meta')).toHaveTextContent('LinkedIn')
+})

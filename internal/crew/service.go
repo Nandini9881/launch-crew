@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/shubham-tomar/launchcrew/internal/buffer"
+	"github.com/shubham-tomar/launchcrew/internal/cards"
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
 	"github.com/shubham-tomar/launchcrew/internal/drafting"
 	"github.com/shubham-tomar/launchcrew/internal/jobs"
@@ -472,6 +473,29 @@ func SlideFor(ctx context.Context, d Deps, openToken string, ip net.IP) (launchI
 		return uuid.Nil, "", "", err
 	}
 	return l.ID, l.Title, strings.TrimRight(d.BaseURL, "/") + "/l/" + openToken, nil
+}
+
+// SlideLogo is what sits over the centre of the launch's QR code: a mode
+// (plane, none or custom) and, for custom, the URL of the stored image. A
+// launch whose setting cannot be read gets the plane.
+func SlideLogo(ctx context.Context, d Deps, launchID uuid.UUID) cards.SlideLogo {
+	logo := cards.SlideLogo{Mode: cards.LogoPlane}
+	if d.Pool == nil {
+		return logo
+	}
+	var mode string
+	if err := d.Pool.QueryRow(ctx, `SELECT qr_logo FROM launches WHERE id = $1`, launchID).Scan(&mode); err != nil {
+		return logo
+	}
+	switch mode {
+	case cards.LogoNone:
+		logo.Mode = cards.LogoNone
+	case cards.LogoCustom:
+		if a, err := d.Q.GetLatestLaunchAssetByKind(ctx, sqlc.GetLatestLaunchAssetByKindParams{LaunchID: launchID, Kind: "qrlogo"}); err == nil {
+			logo = cards.SlideLogo{Mode: cards.LogoCustom, URL: a.R2Url}
+		}
+	}
+	return logo
 }
 
 // ChooseRole creates the crew row for someone who came in through the open

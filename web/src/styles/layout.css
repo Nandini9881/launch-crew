@@ -32,6 +32,23 @@ body {
   border: 0;
 }
 
+/* Plain links follow the theme at zero specificity, so any rule that styles a link (nav, footer, buttons) still wins. */
+:where(a:not([class]), a:not([class]):visited) {
+  color: var(--color-accent-strong);
+  text-underline-offset: 0.2em;
+}
+
+:where(a:not([class])):hover {
+  color: var(--color-primary-hover);
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+progress {
+  accent-color: var(--color-accent);
+}
+
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;

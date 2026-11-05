@@ -377,3 +377,116 @@ func TestUploadIsFetchable(t *testing.T) {
 		t.Error("stored body differs")
 	}
 }
+
+// decodeSlide renders a slide and returns what a QR reader makes of it.
+func decodeSlide(t *testing.T, logo SlideLogo, url string) (image.Image, string) {
+	t.Helper()
+	b, err := RenderQRSlideLogo("Shubham shipped v2.4.0", url, logo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decodePNG(t, b)
+	bmp, err := gozxing.NewBinaryBitmapFromImage(img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := qrcode.NewQRCodeReader().Decode(bmp, map[gozxing.DecodeHintType]any{gozxing.DecodeHintType_TRY_HARDER: true})
+	if err != nil {
+		t.Fatalf("decode with logo %+v: %v", logo, err)
+	}
+	return img, res.GetText()
+}
+
+func TestQRSlideCentreMark(t *testing.T) {
+	const url = "https://lc.example/l/aB3xYz9"
+	cx, cy := slideW/2, slideH/2
+	isAccent := func(img image.Image, x, y int) bool {
+		r, g, b, _ := img.At(x, y).RGBA()
+		want := hexColor(accent)
+		return abs(int(r>>8)-int(want.R)) < 12 && abs(int(g>>8)-int(want.G)) < 12 && abs(int(b>>8)-int(want.B)) < 12
+	}
+	// Default is the plane: accent pixels near the centre, white tile around them, and the code still scans.
+	img, got := decodeSlide(t, SlideLogo{}, url)
+	if got != url {
+		t.Fatalf("plane: decoded %q", got)
+	}
+	var accentPx int
+	for y := cy - 30; y <= cy+30; y++ {
+		for x := cx - 30; x <= cx+30; x++ {
+			if isAccent(img, x, y) {
+				accentPx++
+			}
+		}
+	}
+	if accentPx < 200 {
+		t.Errorf("plane drawn with only %d accent pixels", accentPx)
+	}
+	if r, g, b, _ := img.At(cx-qrMark/2+6, cy-qrMark/2+6).RGBA(); r>>8 < 0xF0 || g>>8 < 0xF0 || b>>8 < 0xF0 {
+		t.Errorf("tile corner not white: %v", img.At(cx-qrMark/2+6, cy-qrMark/2+6))
+	}
+
+	// None: no tile and no accent at the centre, and the code still scans.
+	img, got = decodeSlide(t, SlideLogo{Mode: LogoNone}, url)
+	if got != url {
+		t.Fatalf("none: decoded %q", got)
+	}
+	for y := cy - 30; y <= cy+30; y++ {
+		for x := cx - 30; x <= cx+30; x++ {
+			if isAccent(img, x, y) {
+				t.Fatalf("none: accent pixel at %d,%d", x, y)
+			}
+		}
+	}
+}
+
+func TestQRSlideCustomLogoAndFallback(t *testing.T) {
+	const url = "https://lc.example/l/aB3xYz9"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/logo.png" {
+			http.NotFound(w, r)
+			return
+		}
+		img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+		for y := 0; y < 64; y++ {
+			for x := 0; x < 64; x++ {
+				img.Set(x, y, color.RGBA{200, 30, 30, 255}) // red square
+			}
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_ = png.Encode(w, img)
+	}))
+	defer srv.Close()
+	cx, cy := slideW/2, slideH/2
+
+	img, got := decodeSlide(t, SlideLogo{Mode: LogoCustom, URL: srv.URL + "/logo.png"}, url)
+	if got != url {
+		t.Fatalf("custom: decoded %q", got)
+	}
+	if r, g, b, _ := img.At(cx, cy).RGBA(); r>>8 < 180 || g>>8 > 80 || b>>8 > 80 {
+		t.Errorf("custom logo not drawn at the centre: %v", img.At(cx, cy))
+	}
+
+	// An address that does not answer falls back to the plane, never to an error.
+	img, got = decodeSlide(t, SlideLogo{Mode: LogoCustom, URL: srv.URL + "/missing.png"}, url)
+	if got != url {
+		t.Fatalf("fallback: decoded %q", got)
+	}
+	var plane int
+	for y := cy - 30; y <= cy+30; y++ {
+		for x := cx - 30; x <= cx+30; x++ {
+			if r, g, b, _ := img.At(x, y).RGBA(); abs(int(r>>8)-0x4A) < 12 && abs(int(g>>8)-0x45) < 12 && abs(int(b>>8)-0xD1) < 12 {
+				plane++
+			}
+		}
+	}
+	if plane < 200 {
+		t.Errorf("fallback did not draw the plane (%d accent pixels)", plane)
+	}
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}

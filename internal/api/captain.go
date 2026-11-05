@@ -98,6 +98,10 @@ func (c *Captain) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusBadRequest, "invalid", "the title cannot be empty")
 	case errors.Is(err, trigger.ErrBadRoles):
 		writeError(w, http.StatusBadRequest, "invalid", "up to 4 roles, names 1 to 24 characters")
+	case errors.Is(err, launch.ErrLogoRefused):
+		writeError(w, http.StatusBadRequest, "logo_refused", "that logo address cannot be used, try another public image URL under 5 MB")
+	case errors.Is(err, launch.ErrLogoNotImage):
+		writeError(w, http.StatusBadRequest, "logo_not_image", "that logo URL is not an image")
 	case errors.Is(err, launch.ErrHeroRefused):
 		writeError(w, http.StatusBadRequest, "hero_refused", "that image address cannot be used, try another public image URL under 5 MB")
 	case errors.Is(err, trigger.ErrHeroNotImage):
@@ -129,6 +133,8 @@ type createBody struct {
 	Summary       string         `json:"summary"`
 	Roles         []trigger.Role `json:"roles"`
 	HeroURL       string         `json:"heroUrl"`
+	QRLogo        string         `json:"qrLogo"`
+	QRLogoURL     string         `json:"qrLogoUrl"`
 	LaunchAt      *time.Time     `json:"launchAt"`
 	WindowMinutes *int           `json:"windowMinutes"`
 	CrewCap       *int           `json:"crewCap"`
@@ -146,6 +152,7 @@ func (c *Captain) create(w http.ResponseWriter, r *http.Request) {
 	}
 	l, _, err := launch.CreateManual(r.Context(), c.deps, userID(r), trigger.ManualInput{
 		Title: b.Title, Summary: b.Summary, Roles: b.Roles, HeroURL: b.HeroURL,
+		QRLogo: b.QRLogo, QRLogoURL: b.QRLogoURL,
 	})
 	if err != nil {
 		c.fail(w, r, err)
@@ -191,13 +198,11 @@ func (c *Captain) editDraft(w http.ResponseWriter, r *http.Request) {
 		notFound(w, r)
 		return
 	}
-	var body struct {
-		Text string `json:"text"`
-	}
+	var body launch.DraftPatch
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if err := launch.EditCaptainDraft(r.Context(), c.deps, launchID(r), draftID, body.Text); err != nil {
+	if err := launch.PatchCaptainDraft(r.Context(), c.deps, launchID(r), draftID, body); err != nil {
 		c.fail(w, r, err)
 		return
 	}

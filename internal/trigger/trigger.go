@@ -70,4 +70,7 @@ type ManualInput struct {
 	Title, Summary string
 	Roles          []Role
 	HeroURL        string
+	// QRLogo is plane, none or custom ("" is plane); QRLogoURL is the image
+	// for custom. Both are handled by the launch service, not by Build.
+	QRLogo, QRLogoURL string
 }

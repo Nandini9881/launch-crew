@@ -13,13 +13,28 @@ import (
 	"github.com/shubham-tomar/launchcrew/internal/drafting"
 )
 
-// EditCaptainDraft replaces the text of one of the captain's own posts. Only a
-// draft launch can be edited, and only a post that has not been sent. The text
-// must be non-empty and fit the channel's character limit.
-func EditCaptainDraft(ctx context.Context, d Deps, launchID, draftID uuid.UUID, text string) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return invalid("a post cannot be empty")
+// DraftPatch is a captain's change to one of their own posts. Nil fields are
+// left alone. Skipped true removes the post from the launch for its channel
+// (it is kept, so it is not rebuilt, and it is never sent); false puts it back.
+type DraftPatch struct {
+	Text    *string `json:"text"`
+	Skipped *bool   `json:"skipped"`
+}
+
+// PatchCaptainDraft edits one of the captain's own posts. Only a draft launch
+// can be changed, and only a post that has not been sent. New text must be
+// non-empty and fit the channel's character limit; a removed post cannot have
+// its text edited unless the same patch puts it back.
+func PatchCaptainDraft(ctx context.Context, d Deps, launchID, draftID uuid.UUID, p DraftPatch) error {
+	if p.Text == nil && p.Skipped == nil {
+		return invalid("nothing to change")
+	}
+	var text string
+	if p.Text != nil {
+		text = strings.TrimSpace(*p.Text)
+		if text == "" {
+			return invalid("a post cannot be empty")
+		}
 	}
 	s, err := load(ctx, d, launchID)
 	if err != nil {
@@ -37,19 +52,44 @@ func EditCaptainDraft(ctx context.Context, d Deps, launchID, draftID uuid.UUID, 
 		return ErrNotFound
 	}
 	cd := all[i]
-	if cd.Status != "draft" || cd.BufferPostID.Valid {
+	if (cd.Status != draftDraft && cd.Status != captainSkipped) || cd.BufferPostID.Valid {
 		return invalid("this post has already been sent to Buffer")
 	}
-	if ch, ok := s.channels[cd.ChannelID]; ok {
-		max := drafting.RulesFor(drafting.Network(ch.Service), s.cfg).MaxChars
-		if n := utf8.RuneCountInString(text); max > 0 && n > max {
-			return invalid("that post is %d characters and %s allows %d", n, ch.Service, max)
+
+	next := cd.Status
+	if p.Skipped != nil {
+		next = draftDraft
+		if *p.Skipped {
+			next = captainSkipped
 		}
 	}
-	if _, err := d.Pool.Exec(ctx,
-		`UPDATE captain_drafts SET text = $3 WHERE id = $2 AND launch_id = $1 AND status = 'draft' AND buffer_post_id IS NULL`,
-		launchID, draftID, text); err != nil {
-		return fmt.Errorf("launch: edit captain draft: %w", err)
+	if p.Text != nil && next == captainSkipped {
+		return invalid("this post is removed from the launch; add it back to edit it")
+	}
+	if p.Text != nil {
+		s.withBuffer(ctx, d)
+		if ch, ok := s.channels[cd.ChannelID]; ok {
+			max := drafting.RulesFor(drafting.Network(ch.Service), s.cfg).MaxChars
+			if n := utf8.RuneCountInString(text); max > 0 && n > max {
+				return invalid("that post is %d characters and %s allows %d", n, ch.Service, max)
+			}
+		}
+	}
+
+	var newText *string
+	if p.Text != nil {
+		newText = &text
+	}
+	tag, err := d.Pool.Exec(ctx,
+		`UPDATE captain_drafts SET text = COALESCE($3, text), status = $4
+		 WHERE id = $2 AND launch_id = $1 AND status IN ('draft', 'skipped') AND buffer_post_id IS NULL
+		   AND EXISTS (SELECT 1 FROM launches WHERE id = $1 AND status = 'draft')`,
+		launchID, draftID, newText, next)
+	if err != nil {
+		return fmt.Errorf("launch: patch captain draft: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return invalid("this post can no longer be changed")
 	}
 	return nil
 }

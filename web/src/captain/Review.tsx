@@ -9,14 +9,26 @@ type Props = {
   pending: boolean
   onHidden: (hidden: number[]) => void
   onEditDraft: (draftId: string, text: string) => Promise<void>
+  onSkipDraft: (draftId: string, skipped: boolean) => Promise<void>
 }
 
 // One of the captain's posts, with an editor that opens in place while the launch is still a draft.
-function Post({ d, canEdit, onEdit }: { d: CaptainDraft; canEdit: boolean; onEdit: (id: string, text: string) => Promise<void> }) {
+function Post({
+  d,
+  canEdit,
+  onEdit,
+  onSkip,
+}: {
+  d: CaptainDraft
+  canEdit: boolean
+  onEdit: (id: string, text: string) => Promise<void>
+  onSkip: (id: string, skipped: boolean) => Promise<void>
+}) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(d.text)
   const [saving, setSaving] = useState(false)
   const [problem, setProblem] = useState<string>()
+  const [skipping, setSkipping] = useState(false)
   const limit = limitOf(d.service)
   const trimmed = text.trim()
   const over = limit !== undefined && [...trimmed].length > limit
@@ -32,6 +44,35 @@ function Post({ d, canEdit, onEdit }: { d: CaptainDraft; canEdit: boolean; onEdi
       setProblem(asError(e).message)
     }
     setSaving(false)
+  }
+
+  async function skip(skipped: boolean) {
+    setSkipping(true)
+    setProblem(undefined)
+    try {
+      await onSkip(d.id, skipped)
+    } catch (e) {
+      setProblem(asError(e).message)
+    }
+    setSkipping(false)
+  }
+
+  if (d.status === 'skipped') {
+    return (
+      <li className="cap-post cap-post-skipped">
+        <div className="cap-post-head">
+          <span className="cap-muted">
+            Not posting to {d.channelName} · {serviceName(d.service)}
+          </span>
+          {canEdit && (
+            <Button variant="secondary" disabled={skipping} aria-label={`Add back ${d.channelName}`} onClick={() => skip(false)}>
+              Add back
+            </Button>
+          )}
+        </div>
+        {problem && <p className="cap-err" role="alert">{problem}</p>}
+      </li>
+    )
   }
 
   return (
@@ -83,17 +124,24 @@ function Post({ d, canEdit, onEdit }: { d: CaptainDraft; canEdit: boolean; onEdi
               </span>
             )}
             {canEdit && unsent && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setText(d.text)
-                  setEditing(true)
-                }}
-              >
-                Edit draft<span className="visually-hidden"> for {d.channelName}</span>
-              </Button>
+              <span className="cap-edit-actions">
+                <Button
+                  variant="secondary"
+                  aria-label={`Edit draft for ${d.channelName}`}
+                  onClick={() => {
+                    setText(d.text)
+                    setEditing(true)
+                  }}
+                >
+                  Edit draft
+                </Button>
+                <Button variant="ghost" disabled={skipping} aria-label={`Remove post for ${d.channelName}`} onClick={() => skip(true)}>
+                  Remove post
+                </Button>
+              </span>
             )}
           </div>
+          {problem && <p className="cap-err" role="alert">{problem}</p>}
         </>
       )}
     </li>
@@ -118,7 +166,7 @@ function PrRow({ pr, editable, pending, toggle }: { pr: Pr; editable: boolean; p
 }
 
 // Left column: headline changes, the captain's own posts, hidden chores.
-export default function Review({ detail, pending, onHidden, onEditDraft }: Props) {
+export default function Review({ detail, pending, onHidden, onEditDraft, onSkipDraft }: Props) {
   const editable = detail.status === 'draft'
   const all = [...detail.headlines, ...detail.chores]
   const toggle = (n: number) => {
@@ -148,6 +196,9 @@ export default function Review({ detail, pending, onHidden, onEditDraft }: Props
       )}
       <section className="cap-section panel" aria-labelledby="cap-posts">
         <h2 id="cap-posts">Your posts</h2>
+        {posts.length > 0 && editable && (
+          <p className="cap-muted cap-hint">Posts go to each channel you keep. Remove one to skip that channel.</p>
+        )}
         {posts.length === 0 ? (
           <p className="cap-muted">
             {detail.bufferConnected ? 'Building your posts...' : 'Connect Buffer to see your posts here.'}
@@ -155,7 +206,7 @@ export default function Review({ detail, pending, onHidden, onEditDraft }: Props
         ) : (
           <ul className="cap-list">
             {posts.map((d) => (
-              <Post key={d.id} d={d} canEdit={editable} onEdit={onEditDraft} />
+              <Post key={d.id} d={d} canEdit={editable} onEdit={onEditDraft} onSkip={onSkipDraft} />
             ))}
           </ul>
         )}
