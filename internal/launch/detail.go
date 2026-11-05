@@ -94,6 +94,13 @@ type DetailView struct {
 	Checks          []CheckView        `json:"checks"`
 	DeadLetters     []DeadLetter       `json:"deadLetters"`
 	Counts          Counts             `json:"counts"`
+	// CaptainName is who the captain is on the page: their GitHub login, else
+	// the name of their first Buffer channel, else "You".
+	CaptainName string `json:"captainName"`
+	// QRLogo is what sits over the centre of the QR code: plane, none or
+	// custom; QRLogoURL is the stored image for custom.
+	QRLogo    string `json:"qrLogo"`
+	QRLogoURL string `json:"qrLogoUrl"`
 }
 
 // Detail builds the launch page. For a draft it first adds any missing
@@ -113,6 +120,8 @@ func Detail(ctx context.Context, d Deps, id uuid.UUID) (DetailView, error) {
 		Headlines: []Change{}, Chores: []Change{}, CaptainDrafts: []CaptainDraftView{},
 		Crew: []CrewRow{}, Checks: []CheckView{}, DeadLetters: []DeadLetter{},
 	}
+	v.CaptainName = captainName(s)
+	v.QRLogo, v.QRLogoURL = qrLogoOf(ctx, d, l.ID)
 	if l.Source == "manual" && len(l.OpenTokenEnc) > 0 && (l.Status == statusLaunched || l.Status == statusClosed) {
 		if tok, err := d.Keyring.Decrypt(l.OpenTokenEnc); err == nil {
 			v.OpenURL = d.link("/l/" + string(tok))
@@ -220,4 +229,16 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+// captainName is the login the launch knows for its captain, else the first
+// Buffer channel's name, else "You".
+func captainName(s *state) string {
+	if s.captain != "" {
+		return s.captain
+	}
+	if len(s.order) > 0 && s.order[0].Name != "" {
+		return s.order[0].Name
+	}
+	return "You"
 }

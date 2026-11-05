@@ -41,7 +41,7 @@ test('captain launches once', async ({ page, request }) => {
   const captainPosts = async () => (await control.posts(request)).filter((p) => p.channelId.startsWith('captain-'))
   await until(async () => (await captainPosts()).length === 2, 'two captain posts')
   await until(async () => (await control.comments(request, people.bob.pr)).length === 1, 'comment on #12')
-  expect(await control.comments(request, people.alice.pr)).toHaveLength(1)
+  await until(async () => (await control.comments(request, people.alice.pr)).length === 1, 'comment on #11')
   expect(await control.comments(request, 13)).toHaveLength(0) // carol was suggested, not ticked
 
   // Second press: refused, and nothing new reaches Buffer or GitHub.

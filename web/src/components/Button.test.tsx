@@ -11,7 +11,8 @@ test('primary button is at least 44px tall', () => {
   const btn = screen.getByRole('button', { name: 'Launch' })
   expect(btn).toHaveClass('btn', 'btn-primary')
   const rule = /\.btn\s*\{([^}]*)\}/.exec(css)
-  expect(rule?.[1]).toMatch(/min-height:\s*44px/)
+  const px = Number(/min-height:\s*(\d+)px/.exec(rule?.[1] ?? '')?.[1])
+  expect(px).toBeGreaterThanOrEqual(44)
 })
 
 test('busy button keeps its label and sets aria-busy', () => {

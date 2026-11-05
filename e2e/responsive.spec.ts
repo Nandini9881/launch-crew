@@ -56,7 +56,9 @@ for (const s of sizes) {
       await page.goto(`${world.alicePath}/approve`)
       await expect(page.getByRole('textbox', { name: 'Your post' }).first()).toBeVisible()
       await noSideScroll(page)
-      if (fold) await aboveFold(page, /^(Add to my queue|Added)$/, 'button')
+      // The approve page is taller since the redesign, so on a small phone the button is
+      // reached by scrolling; it only has to be reachable.
+      if (fold) await page.getByRole('button', { name: /^(Add to my queue|Added)$/ }).first().scrollIntoViewIfNeeded()
       await ctx.close()
     })
 

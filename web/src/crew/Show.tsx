@@ -1,17 +1,61 @@
 import QRCode from 'qrcode'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router'
-import { ApiError, showInfo } from '../api'
+import { ApiError, showInfo, type ShowInfo } from '../api'
 import Wordmark from '../components/Wordmark'
 import { Dead } from './shared'
 import '../styles/print.css'
 import './crew.css'
 
 const SIDE = 800
-const MARK = 0.12
+// The centre tile covers a fifth of the QR's width; error correction H absorbs it.
+const TILE = 0.2
+const PLANE_PATH =
+  'M12 2.2c1.05 0 1.85 1.3 1.85 3v4.1l7 3.9v2.1l-7 -2v3.5l2.35 1.85v1.55L12 19.1l-4.2 1.2v-1.55l2.35 -1.85v-3.5l-7 2v-2.1l7 -3.9V5.2c0 -1.7 0.8 -3 1.85 -3z'
+const INDIGO = '#4a45d1'
 
-// QR with error correction H and the vermilion square over the centre.
-async function paint(canvas: HTMLCanvasElement, text: string) {
+export type Logo = { kind: 'plane' } | { kind: 'none' } | { kind: 'image'; url: string }
+
+// What goes in the middle of the QR: the plane unless the captain chose otherwise.
+export function logoOf(view: Pick<ShowInfo, 'qrLogo' | 'qrLogoUrl'>): Logo {
+  if (view.qrLogo === 'none') return { kind: 'none' }
+  if (view.qrLogo === 'custom' && view.qrLogoUrl) return { kind: 'image', url: view.qrLogoUrl }
+  return { kind: 'plane' }
+}
+
+function roundTile(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, r: number) {
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + size, y, x + size, y + size, r)
+  ctx.arcTo(x + size, y + size, x, y + size, r)
+  ctx.arcTo(x, y + size, x, y, r)
+  ctx.arcTo(x, y, x + size, y, r)
+  ctx.closePath()
+}
+
+function drawPlane(ctx: CanvasRenderingContext2D, mid: number, size: number) {
+  ctx.save()
+  ctx.translate(mid, mid)
+  ctx.scale(size / 24, size / 24)
+  ctx.rotate(Math.PI / 4)
+  ctx.translate(-12, -12)
+  ctx.fillStyle = INDIGO
+  ctx.fill(new Path2D(PLANE_PATH))
+  ctx.restore()
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('logo did not load'))
+    img.src = url
+  })
+}
+
+// QR with error correction H and a white tile with the logo over the centre.
+async function paint(canvas: HTMLCanvasElement, text: string, logo: Logo) {
   await QRCode.toCanvas(canvas, text, {
     errorCorrectionLevel: 'H',
     width: SIDE,
@@ -22,19 +66,29 @@ async function paint(canvas: HTMLCanvasElement, text: string) {
   canvas.style.width = ''
   canvas.style.height = ''
   const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  const size = canvas.width * MARK
-  const halo = size * 1.3
+  if (!ctx || logo.kind === 'none') return
+  const tile = canvas.width * TILE
   const mid = canvas.width / 2
   ctx.fillStyle = '#ffffff'
-  ctx.fillRect(mid - halo / 2, mid - halo / 2, halo, halo)
-  ctx.fillStyle = getComputedStyle(canvas).getPropertyValue('--color-accent').trim() || '#e4572e'
-  ctx.fillRect(mid - size / 2, mid - size / 2, size, size)
+  roundTile(ctx, mid - tile / 2, mid - tile / 2, tile, tile * 0.22)
+  ctx.fill()
+  if (logo.kind === 'image') {
+    try {
+      const img = await loadImage(logo.url)
+      const box = tile * 0.76
+      const k = Math.min(box / img.width, box / img.height)
+      ctx.drawImage(img, mid - (img.width * k) / 2, mid - (img.height * k) / 2, img.width * k, img.height * k)
+      return
+    } catch {
+      /* fall back to the plane */
+    }
+  }
+  drawPlane(ctx, mid, tile * 0.7)
 }
 
 export default function Show() {
   const openToken = useParams().openToken ?? ''
-  const [view, setView] = useState<{ title: string; shortUrl: string }>()
+  const [view, setView] = useState<ShowInfo>()
   const [error, setError] = useState<ApiError>()
   const [failed, setFailed] = useState(false)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -50,7 +104,7 @@ export default function Show() {
   }, [openToken])
 
   useEffect(() => {
-    if (view && canvas.current) paint(canvas.current, view.shortUrl).catch(() => setFailed(true))
+    if (view && canvas.current) paint(canvas.current, view.shortUrl, logoOf(view)).catch(() => setFailed(true))
   }, [view])
 
   if (error) return <Dead code={error.code} />

@@ -88,9 +88,9 @@ test('template then voiced swap keeps user edits', async () => {
   visit()
   expect(await box()).toHaveValue('template one')
   expect(caption('a version in your voice is on its way')).toBe(1)
-  await user.click(screen.getByRole('tab', { name: 'ada.bsky.social' }))
+  await user.click(screen.getByRole('tab', { name: /^ada\.bsky\.social/ }))
   await user.type(await box(), '!')
-  await user.click(screen.getByRole('tab', { name: 'Ada on X' }))
+  await user.click(screen.getByRole('tab', { name: /^Ada on X/ }))
   expect(m.calls.find((c) => c.method === 'PUT')?.url).toBe('/api/crew/m1/drafts/d2')
 
   m.polled = {
@@ -100,7 +100,7 @@ test('template then voiced swap keeps user edits', async () => {
   await advance(1600)
   expect(await box()).toHaveValue('voiced one')
   expect(caption('written how you write')).toBe(1)
-  await user.click(screen.getByRole('tab', { name: 'ada.bsky.social' }))
+  await user.click(screen.getByRole('tab', { name: /^ada\.bsky\.social/ }))
   expect(await box()).toHaveValue('template two!')
   expect(m.calls.some((c) => c.method === 'GET' && c.url.endsWith('/drafts'))).toBe(true)
 })
@@ -181,15 +181,15 @@ test('no eligible channels shows copy path, no post button', async () => {
   expect(screen.getByRole('link', { name: 'Other ways to share' })).toHaveAttribute('href', '/s/tok1/fallback')
   await userEvent.click(screen.getByRole('button', { name: 'Copy text' }))
   expect(writeText).toHaveBeenCalledWith('template one')
-  expect(screen.getByRole('checkbox', { name: 'Ada on X · not connected' })).toBeDisabled()
+  expect(screen.getByRole('checkbox', { name: /^Ada on X.*not connected$/ })).toBeDisabled()
 })
 
 test('closed launch hides window timing', async () => {
   mockApi({ connect: approveView({ closed: true, timing: ['queue', 'draft'] }) })
   visit()
-  expect(await screen.findByRole('radio', { name: 'next free slot' })).toBeChecked()
+  expect(await screen.findByRole('radio', { name: 'Next free slot' })).toBeChecked()
   expect(screen.queryByRole('radio', { name: 'Land in the window' })).toBeNull()
-  expect(screen.getByRole('radio', { name: 'save as draft' })).toBeInTheDocument()
+  expect(screen.getByRole('radio', { name: 'Save as draft' })).toBeInTheDocument()
 })
 
 test('reduced motion swaps without transition class', async () => {
@@ -241,7 +241,7 @@ test('Buffer not answering keeps edits and window_closed switches timing', async
   expect(area).toHaveValue('template one more')
   await userEvent.click(screen.getByRole('button', { name: 'Add to my queue' }))
   expect(await screen.findByText('The window has closed')).toBeInTheDocument()
-  expect(screen.getByRole('radio', { name: 'next free slot' })).toBeChecked()
+  expect(screen.getByRole('radio', { name: 'Next free slot' })).toBeChecked()
   expect(posts(m)).toHaveLength(2)
 })
 

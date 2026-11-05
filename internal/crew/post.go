@@ -44,8 +44,8 @@ type Deps struct {
 	// Enqueue adds a job; jobs.Enqueue bound to Q in production.
 	Enqueue func(ctx context.Context, kind jobs.Kind, payload any, runAt time.Time, launchID *uuid.UUID) (int64, error)
 	BaseURL string // public origin, for open links
-	// RenderSlide draws the QR slide PNG; cards.RenderQRSlide when nil.
-	RenderSlide func(title, shortURL string) ([]byte, error)
+	// RenderSlide draws the QR slide PNG; cards.RenderQRSlideLogo when nil.
+	RenderSlide func(title, shortURL string, logo cards.SlideLogo) ([]byte, error)
 	Keyring     *crypto.Keyring
 	// TokenTTL is how long an invite token works; 30 days when zero.
 	TokenTTL time.Duration

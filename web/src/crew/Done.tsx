@@ -2,12 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { getDrafts, remember, type Outcome } from '../api'
 import Row from '../components/Row'
-import Shell from '../components/Shell'
 import Skeleton from '../components/Skeleton'
-import Wordmark from '../components/Wordmark'
 import Board from './Board'
 import { hm, meridiem, serviceName, weekday, when } from './format'
-import { Dead, Foreign, Footer, useInvite } from './shared'
+import { CrewFrame, Dead, Foreign, useInvite } from './shared'
 
 const BUFFER = 'https://publish.buffer.com'
 
@@ -81,8 +79,7 @@ export default function Done() {
   }
 
   return (
-    <Shell width="person">
-      <Wordmark />
+    <CrewFrame version={view?.launch.version} footer>
       {!view || !outcomes ? (
         <Skeleton lines={3} />
       ) : !title ? (
@@ -92,6 +89,9 @@ export default function Done() {
         </>
       ) : (
         <>
+          <span className="crew-check" aria-hidden="true">
+            <svg viewBox="0 0 12 12"><path d="M2 6.2 L5 9 L10 3" /></svg>
+          </span>
           <h1 className="crew-title">{title}</h1>
           <p>
             <a className="btn btn-secondary" href={postId ? `${BUFFER}/posts/${q(postId)}` : BUFFER} target="_blank" rel="noopener noreferrer">
@@ -111,6 +111,7 @@ export default function Done() {
           {view.launch.launchAt && !allDrafts && <p className="crew-caption">{caption(view.launch.launchAt, view.launch.windowMinutes)}</p>}
         </>
       )}
+      {memberId && <div className="perf perf-h crew-perf" aria-hidden="true" />}
       {memberId && <Board memberId={memberId} token={token} shareUrl={view!.launch.shortUrl || view!.launch.releaseUrl} />}
       {memberId && (
         <div className="crew-remember">
@@ -121,7 +122,6 @@ export default function Done() {
           {saveFailed && <p className="crew-note">couldn't save, try again</p>}
         </div>
       )}
-      <Footer />
-    </Shell>
+    </CrewFrame>
   )
 }

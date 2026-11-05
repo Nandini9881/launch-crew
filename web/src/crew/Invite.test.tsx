@@ -124,20 +124,25 @@ test('primary button visible at 375x667', async () => {
   const num = (css: string, prop: string) => Number(new RegExp(`${prop}:\\s*([\\d.]+)`).exec(css)![1])
   const VIEWPORT = 375
 
+  // Stack from the top of the page: shell padding, wordmark row, panel padding, card, perforation,
+  // preview box, caption and the primary button, with the panel's gap between each block.
   const gutter = Math.min(Math.max(px('space-md'), VIEWPORT * 0.05), px('space-lg')) // clamp(md, 5vw, lg)
   const shellTop = px('space-lg')
-  const wordmark = px('type-body-size') * num(tokens, '--type-body-leading')
+  const markRow = 34 + px('space-ms') // wordmark mark is 2.125rem, margin below
+  const panelPad = Math.min(Math.max(px('space-lg'), VIEWPORT * 0.06), px('space-2xl')) // clamp(lg, 6cqi, 2xl)
+  const gap = px('space-md')
   const ratio = /aspect-ratio:\s*(\d+)\s*\/\s*(\d+)/.exec(body(comps, '.card'))!
-  const card = (VIEWPORT - 2 * gutter) * (Number(ratio[2]) / Number(ratio[1]))
+  const card = (VIEWPORT - 2 * gutter - 2 * panelPad) * (Number(ratio[2]) / Number(ratio[1]))
+  const perf = 22
   const prev = body(crew, '.crew-preview')
-  const previewSize = /--preview-size:\s*([\d.]+)rem/.exec(prev)![1]
-  const previewH = num(prev, '-webkit-line-clamp') * Number(previewSize) * 16 * num(prev, 'line-height')
-  const previewMargin = 2 * px('space-ms')
+  const previewH =
+    num(prev, '-webkit-line-clamp') * px('type-draft-size') * num(tokens, '--type-draft-leading') + 2 * px('space-md')
+  expect(prev).toMatch(/padding:\s*var\(--space-md\)/)
   const cap = body(crew, '.crew-caption')
   const captionLines = 2 // trust strip wraps to two lines at 375px
-  const captionH = captionLines * px('type-small-size') * num(tokens, '--type-small-leading') + px('space-md')
-  expect(cap).toMatch(/var\(--space-md\)/)
+  const captionH = captionLines * px('type-small-size') * num(tokens, '--type-small-leading')
   const button = Number(/min-height:\s*(\d+)px/.exec(body(comps, '.btn'))![1])
+  expect(cap).toMatch(/margin:\s*0/)
 
   mockApi({ card: null })
   visit('/s/tok1')
@@ -147,7 +152,7 @@ test('primary button visible at 375x667', async () => {
     'card-title', 'crew-preview', 'crew-caption', 'btn btn-primary', 'btn btn-ghost',
   ])
   expect(order[3]).toBe(primary)
-  const bottom = shellTop + wordmark + card + previewH + previewMargin + captionH + button
+  const bottom = shellTop + markRow + panelPad + card + gap + perf + gap + previewH + gap + captionH + gap + button
   expect(bottom).toBeLessThanOrEqual(667)
 })
 

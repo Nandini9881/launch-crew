@@ -36,6 +36,9 @@ const detail = (over: Partial<Detail> = {}): Detail => ({
   checks: checks(0),
   deadLetters: [],
   counts: { in: 0, total: 0 },
+  captainName: 'Shubham Tomar',
+  qrLogo: 'plane',
+  qrLogoUrl: '',
   ...over,
 })
 
@@ -109,9 +112,9 @@ test('red preflight row shows fix text', async () => {
 test('empty launches state', async () => {
   mockApi({ list: [] })
   visit('/captain')
-  expect(await screen.findByText('Nothing launched yet. Tag a release, or start one by hand.')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'Connect a repo' })).toHaveAttribute('href', '/captain/repos')
-  expect(screen.getByRole('link', { name: 'Start one by hand' })).toHaveAttribute('href', '/captain/new')
+  expect(await screen.findByText(/No launches yet/)).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: 'New launch' }).some((a) => a.getAttribute('href') === '/captain/new')).toBe(true)
+  expect(screen.queryByRole('link', { name: 'Start one by hand' })).toBeNull()
 })
 
 test('new launch roles capped at four and 24 chars', async () => {
@@ -179,4 +182,166 @@ test('launched manual launch shows link, slide and PNG', async () => {
   expect(await screen.findByRole('link', { name: 'Show at the event' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument()
   expect(screen.queryByText('Link, slide and PNG appear after Launch.')).toBeNull()
+})
+
+test('a captain post can be edited in place while the launch is a draft', async () => {
+  const d = detail({
+    captainDrafts: [
+      { id: 'cd1', channelId: 'c1', channelName: 'launchcrew', service: 'twitter', text: 'old text', status: 'draft', bufferPostId: '', note: '' },
+    ],
+  })
+  const calls = mockApi({ detail: d })
+  const user = userEvent.setup()
+  visit('/captain/launches/l1')
+  await user.click(await screen.findByRole('button', { name: /edit draft/i }))
+  const box = screen.getByRole('textbox', { name: /edit post for launchcrew/i })
+  await user.clear(box)
+  await user.type(box, 'a better post')
+  await user.click(screen.getByRole('button', { name: /save post/i }))
+  const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/drafts/cd1'))
+  expect(patch?.body).toEqual({ text: 'a better post' })
+})
+
+test('a post that already went to Buffer has no edit button', async () => {
+  mockApi({
+    detail: detail({
+      captainDrafts: [
+        { id: 'cd1', channelId: 'c1', channelName: 'launchcrew', service: 'twitter', text: 'sent', status: 'draft', bufferPostId: 'p1', note: '' },
+      ],
+    }),
+  })
+  visit('/captain/launches/l1')
+  await screen.findByText('sent')
+  expect(screen.queryByRole('button', { name: /edit draft/i })).toBeNull()
+})
+
+test('the appearance switch lives in the top bar', async () => {
+  mockApi()
+  visit('/captain/launches/l1')
+  const nav = (await screen.findAllByRole('banner'))[0]
+  expect(within(nav).getByRole('radio', { name: 'Dark' })).toBeInTheDocument()
+})
+
+const cd = (over: Partial<Detail['captainDrafts'][number]> = {}): Detail['captainDrafts'][number] => ({
+  id: 'cd1', channelId: 'c1', channelName: 'launchcrew', service: 'twitter', text: 'hello', status: 'draft', bufferPostId: '', note: '', ...over,
+})
+const member = (over: Partial<Detail['crew'][number]> = {}): Detail['crew'][number] => ({
+  id: 'm1', name: 'Maya Kapoor', login: 'mayakp', role: 'contributor', state: 'approved', commentFailed: false, ...over,
+})
+
+test('hero shows the title once, the crew facts and the countdown', async () => {
+  const at = new Date(Date.now() + 2 * 3600_000 + 30 * 60_000).toISOString()
+  mockApi({
+    detail: detail({
+      launchAt: at,
+      crew: [member(), member({ id: 'm2', name: 'Devin Osei', state: 'drafting' }), member({ id: 'm3', name: 'Priya Nair', state: 'invited' })],
+      counts: { in: 1, total: 3 },
+    }),
+  })
+  visit('/captain/launches/l1')
+  const hero = await screen.findByRole('region', { name: 'Launch summary' })
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(within(hero).getByRole('heading', { level: 1 })).toHaveTextContent('rocket v1.2.0')
+  expect(within(hero).getByText('Crew approving')).toBeInTheDocument()
+  expect(within(hero).getByText('1 PR')).toBeInTheDocument()
+  expect(within(hero).getByText('4 crew')).toBeInTheDocument() // three people plus the captain
+  expect(within(hero).getByText('2 approved')).toBeInTheDocument() // one approved plus the captain
+  expect(within(hero).getByText('1 drafting')).toBeInTheDocument()
+  expect(within(hero).getByText('1 invited')).toBeInTheDocument()
+  expect(within(hero).getByText('Window opens in')).toBeInTheDocument()
+  expect(within(hero).getByText(/^2h 30m$|^2h 29m$/)).toBeInTheDocument()
+})
+
+test('hero says Draft with no crew and asks for a time when none is set', async () => {
+  mockApi({ detail: detail() })
+  visit('/captain/launches/l1')
+  const hero = await screen.findByRole('region', { name: 'Launch summary' })
+  expect(within(hero).getByText('Draft')).toBeInTheDocument()
+  expect(within(hero).getByText('Pick a launch time')).toBeInTheDocument()
+})
+
+test('a launched launch says Posting and never shows an opening countdown', async () => {
+  mockApi({ detail: detail({ status: 'launched', launchAt: new Date(Date.now() - 600_000).toISOString() }) })
+  visit('/captain/launches/l1')
+  const hero = await screen.findByRole('region', { name: 'Launch summary' })
+  expect(within(hero).getByText('Posting')).toBeInTheDocument()
+  expect(within(hero).queryByText('Window opens in')).toBeNull()
+})
+
+test('the captain is the first row of the crew and is counted', async () => {
+  mockApi({ detail: detail({ crew: [member()], counts: { in: 1, total: 1 } }) })
+  visit('/captain/launches/l1')
+  const crew = await screen.findByRole('region', { name: 'The crew · 2' })
+  const rows = within(crew).getAllByRole('listitem')
+  expect(rows[0]).toHaveTextContent('Shubham Tomar')
+  expect(rows[0]).toHaveTextContent('Captain')
+  expect(rows[0]).toHaveTextContent('you')
+  expect(rows[1]).toHaveTextContent('Maya Kapoor')
+  expect(within(crew).getByText('2 of 2 in')).toBeInTheDocument()
+  for (const r of rows) expect(r).toHaveClass('cap-crew-grid')
+})
+
+test('with nobody else, the crew is the captain alone and says so', async () => {
+  mockApi({ detail: detail() })
+  visit('/captain/launches/l1')
+  const crew = await screen.findByRole('region', { name: 'The crew · 1' })
+  expect(within(crew).getByText('1 of 1 in')).toBeInTheDocument()
+  expect(within(crew).getByText('No contributors found in this release.')).toBeInTheDocument()
+})
+
+test('add by link is a labelled read-only field with a copy button beside it', async () => {
+  mockApi({ detail: detail({ source: 'manual', openUrl: 'https://lc.test/l/abc' }) })
+  visit('/captain/launches/l1')
+  const field = await screen.findByLabelText('Add by link')
+  expect(field).toHaveAttribute('readonly')
+  expect(field).toHaveValue('https://lc.test/l/abc')
+  expect(screen.getByRole('button', { name: 'Copy link' })).toHaveClass('btn-secondary')
+})
+
+test('a captain post can be removed from its channel and added back', async () => {
+  const calls = mockApi({ detail: detail({ captainDrafts: [cd(), cd({ id: 'cd2', channelName: 'Shubham Tomar', service: 'linkedin' })] }) })
+  const user = userEvent.setup()
+  visit('/captain/launches/l1')
+  expect(await screen.findByText('Posts go to each channel you keep. Remove one to skip that channel.')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: /remove post for launchcrew/i }))
+  const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/drafts/cd1'))
+  expect(patch?.body).toEqual({ skipped: true })
+})
+
+test('a removed post is collapsed, cannot be edited, and can be added back', async () => {
+  const calls = mockApi({ detail: detail({ captainDrafts: [cd({ status: 'skipped' })] }) })
+  const user = userEvent.setup()
+  visit('/captain/launches/l1')
+  expect(await screen.findByText(/Not posting to launchcrew · X/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /edit draft/i })).toBeNull()
+  expect(screen.queryByText('hello')).toBeNull()
+  await user.click(screen.getByRole('button', { name: /add back/i }))
+  const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/drafts/cd1'))
+  expect(patch?.body).toEqual({ skipped: false })
+})
+
+test('removed posts are not counted as drafts of yours', async () => {
+  mockApi({ detail: detail({ captainDrafts: [cd(), cd({ id: 'cd2', status: 'skipped' })] }) })
+  visit('/captain/launches/l1')
+  expect(await screen.findByText('1 of yours')).toBeInTheDocument()
+})
+
+test('manual launches get a Share at the event panel with real buttons', async () => {
+  mockApi({ detail: detail({ source: 'manual', showUrl: '/l/abc/show', pngUrl: '/l/abc/card.png' }) })
+  visit('/captain/launches/l1')
+  const panel = await screen.findByRole('region', { name: 'Share at the event' })
+  const show = within(panel).getByRole('link', { name: 'Show at the event' })
+  const png = within(panel).getByRole('link', { name: 'Download PNG' })
+  expect(show).toHaveClass('btn', 'btn-secondary')
+  expect(show).toHaveAttribute('href', '/l/abc/show')
+  expect(png).toHaveClass('btn', 'btn-secondary')
+  expect(png).toHaveAttribute('href', '/l/abc/card.png')
+  expect(png).toHaveAttribute('download')
+})
+
+test('before launch the share hint stays and there is no share panel', async () => {
+  mockApi({ detail: detail({ source: 'manual', showUrl: '' }) })
+  visit('/captain/launches/l1')
+  expect(await screen.findByText('Link, slide and PNG appear after Launch.')).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Share at the event' })).toBeNull()
 })

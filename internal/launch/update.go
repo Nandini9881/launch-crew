@@ -27,6 +27,9 @@ type Patch struct {
 	HiddenPRs     []int       `json:"hiddenPrs"`
 	TickedCrew    []uuid.UUID `json:"tickedCrew"`
 	CrewCap       *int        `json:"crewCap"`
+	// QRLogo is plane, none or custom; QRLogoURL is the https image for custom.
+	QRLogo    *string `json:"qrLogo"`
+	QRLogoURL *string `json:"qrLogoUrl"`
 }
 
 // Validate checks the patch against now.
@@ -75,6 +78,19 @@ func changesOf(l sqlc.Launch) ([]change, error) {
 func Update(ctx context.Context, d Deps, id uuid.UUID, p Patch) error {
 	if err := p.Validate(d.now()); err != nil {
 		return err
+	}
+	var (
+		logo *preparedLogo
+		err  error
+	)
+	if p.QRLogo != nil {
+		raw := ""
+		if p.QRLogoURL != nil {
+			raw = *p.QRLogoURL
+		}
+		if logo, err = prepareLogo(ctx, d, *p.QRLogo, raw); err != nil {
+			return err
+		}
 	}
 	tx, err := d.Pool.Begin(ctx)
 	if err != nil {
@@ -137,6 +153,9 @@ func Update(ctx context.Context, d Deps, id uuid.UUID, p Patch) error {
 	}
 	if _, err := q.UpdateLaunch(ctx, arg); err != nil {
 		return fmt.Errorf("launch: update: %w", err)
+	}
+	if err := writeLogo(ctx, d, tx, q, id, logo); err != nil {
+		return err
 	}
 	// Captain drafts are built from the title, summary and headlines; the
 	// ones not yet sent are dropped so Detail or LaunchJob rebuilds them.

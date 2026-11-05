@@ -6,17 +6,25 @@ import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Chip from '../components/Chip'
 import DraftBox from '../components/DraftBox'
-import Shell from '../components/Shell'
-import Skeleton from '../components/Skeleton'
+import Loader from '../components/Loader'
+import Pass from '../components/Pass'
+import ServiceIcon from '../components/ServiceIcon'
 import VoiceCard, { type VoiceEdit } from '../components/VoiceCard'
-import Wordmark from '../components/Wordmark'
 import Results from './Results'
-import { Dead, Foreign, Footer, useInvite } from './shared'
+import { serviceName } from './format'
+import { CrewFrame, Dead, Foreign, useInvite } from './shared'
 import { useDrafts } from './useDrafts'
 
 const LIMITS: Record<string, number> = { x: 280, twitter: 280, threads: 500, bluesky: 300, mastodon: 500, linkedin: 3000 }
-const TIMING: Record<Timing, string> = { window: 'Land in the window', queue: 'next free slot', draft: 'save as draft' }
+const TIMING: Record<Timing, string> = { window: 'Land in the window', queue: 'Next free slot', draft: 'Save as draft' }
+const TIMING_HINT: Record<Timing, string> = {
+  window: 'Goes out at a random moment inside the launch window.',
+  queue: 'Goes to the next open slot in your Buffer queue.',
+  draft: 'Saved in Buffer as a draft. Nothing is scheduled.',
+}
 const BUSY = 'Buffer is not answering, try again'
+
+const passDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
 function TrustStrip({ memberId, token }: { memberId?: string; token: string }) {
   const navigate = useNavigate()
@@ -35,7 +43,7 @@ function TrustStrip({ memberId, token }: { memberId?: string; token: string }) {
   return (
     <>
     {failed && <Alert tone="error" role="alert">Couldn't disconnect, try again</Alert>}
-    <p className="crew-caption crew-trust">
+    <p className="crew-caption crew-fine crew-trust">
       adds drafts to your queue only · nothing posts without your tap ·{' '}
       {asking ? (
         <span>
@@ -132,11 +140,10 @@ export default function Approve() {
   if (invite?.foreign) return <Foreign releaseUrl={invite.launch.releaseUrl} />
   if (fail?.code === 'already_claimed') {
     return (
-      <Shell width="person">
-        <Wordmark />
+      <CrewFrame>
         <h1 className="crew-title">This invite is taken</h1>
-        <p>{fail.message}</p>
-      </Shell>
+        <p className="crew-lede">{fail.message}</p>
+      </CrewFrame>
     )
   }
   if (fail && fail.status !== 502 && fail.status !== 401 && fail.code !== 'verify_first') return <Dead code={fail.code} />
@@ -145,6 +152,11 @@ export default function Approve() {
   const drafts = (fresh ?? data?.drafts ?? []).filter((d) => channels.some((c) => c.id === d.channelId && c.eligible))
   const shown = drafts.filter((d) => checked[d.channelId])
   const current = shown.find((d) => d.channelId === active) ?? shown[0]
+  // The network's name sits beside the account name, unless the account is already called that.
+  const metaOf = (c?: { name: string; service: string }) => {
+    const n = c ? serviceName(c.service) : ''
+    return c && n.toLowerCase() !== c.name.toLowerCase() ? n : ''
+  }
   const done = (id: string) => outcomes[id]?.status === 'queued' || outcomes[id]?.status === 'draft'
   const limit = Math.min(...shown.map((d) => LIMITS[d.network.toLowerCase()] ?? Infinity))
   const eligible = channels.some((c) => c.eligible)
@@ -211,27 +223,39 @@ export default function Approve() {
 
   if (fail?.status === 502) {
     return (
-      <Shell width="person">
-        <Wordmark />
+      <CrewFrame footer>
         <Alert tone="error">
           {BUSY}. <Button variant="secondary" onClick={() => setRetry((n) => n + 1)}>Try again</Button>
         </Alert>
-        <Footer />
-      </Shell>
+      </CrewFrame>
     )
   }
 
   return (
-    <Shell width="person">
-      <Wordmark />
+    <CrewFrame version={invite?.launch.version} footer>
+      {invite?.card && (
+        <span className="eyebrow crew-eyebrow">
+          {invite.launch.project} {invite.launch.version}
+        </span>
+      )}
       <h1 className="crew-title">{invite?.launch.title}</h1>
+      {invite && (
+        invite.card ? (
+          <img className="card card-img" src={invite.card.url} alt={invite.card.alt} />
+        ) : (
+          <Pass
+            eyebrow={invite.launch.project}
+            name={invite.member.name}
+            meta={invite.member.role}
+            stub={{ label: 'Pass', value: invite.launch.version || '·', date: passDate(invite.launch.launchAt) }}
+          />
+        )
+      )}
+      <div className="perf perf-h crew-perf" aria-hidden="true" />
       {message && <Alert tone="error">{message}</Alert>}
-      <div aria-busy={!data || undefined}>
+      <div className="crew-stack" aria-busy={!data || undefined}>
         {!data ? (
-          <>
-            <Skeleton lines={5} />
-            <Skeleton lines={1} />
-          </>
+          <Loader label="Building your post" hint="Nothing is queued yet. You see the draft first, and nothing posts until you tap approve." />
         ) : !eligible ? (
           <CopyPath text={data.drafts[0]?.text ?? invite?.copyText ?? ''} token={token} />
         ) : (
@@ -251,7 +275,11 @@ export default function Approve() {
                     onClick={() => setActive(d.channelId)}
                     onKeyDown={(e) => tabKey(e, i)}
                   >
-                    {channels.find((c) => c.id === d.channelId)?.name}
+                    <ServiceIcon service={channels.find((c) => c.id === d.channelId)?.service ?? ''} />
+                    <span>{channels.find((c) => c.id === d.channelId)?.name}</span>{' '}
+                    {metaOf(channels.find((c) => c.id === d.channelId)) && (
+                      <span className="crew-tab-meta">{metaOf(channels.find((c) => c.id === d.channelId))}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -287,6 +315,8 @@ export default function Approve() {
                 <Chip
                   key={c.id}
                   label={c.name}
+                  meta={metaOf(c) || undefined}
+                  icon={<ServiceIcon service={c.service} />}
                   checked={!!checked[c.id]}
                   disabled={!c.eligible}
                   reason={c.reason}
@@ -310,19 +340,32 @@ export default function Approve() {
         )}
       </div>
       {data && eligible && !data.needsReconnect && (
-        <fieldset className="crew-fieldset crew-timing">
-          <legend className="visually-hidden">When</legend>
-          {data.timing.filter((t) => !(windowGone && t === 'window')).map((t) => (
-            <label key={t} className="crew-radio">
-              <input type="radio" name="timing" checked={timing === t} onChange={() => setTiming(t)} />
-              {TIMING[t]}
-            </label>
-          ))}
+        <fieldset className="crew-fieldset">
+          <legend>When it goes out</legend>
+          <div className="crew-options">
+            {data.timing.filter((t) => !(windowGone && t === 'window')).map((t) => (
+              <label key={t} className="crew-option">
+                <input
+                  className="crew-radio-input"
+                  type="radio"
+                  name="timing"
+                  aria-labelledby={`timing-${t}`}
+                  aria-describedby={`timing-${t}-hint`}
+                  checked={timing === t}
+                  onChange={() => setTiming(t)}
+                />
+                <span className="crew-option-body">
+                  <span id={`timing-${t}`} className="crew-option-title">{TIMING[t]}</span>
+                  <span id={`timing-${t}-hint`} className="crew-option-hint">{TIMING_HINT[t]}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </fieldset>
       )}
       {data && (
         <>
-          <p className="crew-note">
+          <p className="crew-note crew-fine">
             {data.voiceLine}{' '}
             <button type="button" className="crew-inline" aria-expanded={voice} ref={tune} onClick={() => setVoice((v) => !v)}>tune</button>
           </p>
@@ -331,7 +374,6 @@ export default function Approve() {
         </>
       )}
       <TrustStrip memberId={memberId} token={token} />
-      <Footer />
-    </Shell>
+    </CrewFrame>
   )
 }
