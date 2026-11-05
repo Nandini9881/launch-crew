@@ -45,7 +45,7 @@ const h1 = (text: string | RegExp) => async (p: Page) => {
 test('home', async ({ browser }) => {
   const { ctx, page } = await open(browser, undefined)
   await scan(page, '/', async (p) => {
-    await expect(p.getByRole('link', { name: 'Sign in with Buffer' })).toBeVisible()
+    await expect(p.getByRole('link', { name: 'Sign in with Buffer' }).first()).toBeVisible()
   })
   await ctx.close()
 })

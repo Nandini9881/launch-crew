@@ -157,10 +157,6 @@ export default function Approve() {
     const n = c ? serviceName(c.service) : ''
     return c && n.toLowerCase() !== c.name.toLowerCase() ? n : ''
   }
-  const tabName = (channelId: string) => {
-    const c = channels.find((x) => x.id === channelId)
-    return c ? [c.name, metaOf(c)].filter(Boolean).join(' · ') : ''
-  }
   const done = (id: string) => outcomes[id]?.status === 'queued' || outcomes[id]?.status === 'draft'
   const limit = Math.min(...shown.map((d) => LIMITS[d.network.toLowerCase()] ?? Infinity))
   const eligible = channels.some((c) => c.eligible)
@@ -278,10 +274,9 @@ export default function Approve() {
                     tabIndex={d.channelId === current?.channelId ? 0 : -1}
                     onClick={() => setActive(d.channelId)}
                     onKeyDown={(e) => tabKey(e, i)}
-                    aria-label={tabName(d.channelId)}
                   >
                     <ServiceIcon service={channels.find((c) => c.id === d.channelId)?.service ?? ''} />
-                    <span>{channels.find((c) => c.id === d.channelId)?.name}</span>
+                    <span>{channels.find((c) => c.id === d.channelId)?.name}</span>{' '}
                     {metaOf(channels.find((c) => c.id === d.channelId)) && (
                       <span className="crew-tab-meta">{metaOf(channels.find((c) => c.id === d.channelId))}</span>
                     )}
