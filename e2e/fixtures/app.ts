@@ -74,8 +74,11 @@ export async function releaseLaunch(rq: APIRequestContext): Promise<string> {
 
 /** Sets the launch moment on the captain detail page. */
 export async function setLaunchTime(page: Page, minutesFromNow: number) {
-  await page.getByLabel('Launch moment').fill(localInput(minutesFromNow))
-  await page.getByRole('button', { name: 'Save timing' }).click()
+  const field = page.getByLabel('Launch moment')
+  if (!(await field.isVisible())) await page.getByRole('button', { name: 'Change moment or window' }).click()
+  await field.fill(localInput(minutesFromNow))
+  // Timing saves itself once the time is valid.
+  await expect(page.getByRole('status').filter({ hasText: /^Saved$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Launch( ·.*)?$/ })).toBeVisible()
 }
 
