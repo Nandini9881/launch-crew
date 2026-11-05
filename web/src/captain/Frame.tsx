@@ -28,22 +28,22 @@ export default function Frame({ children }: { children: ReactNode }) {
             </>
           }
           end={
-            <details className="cap-account">
-              <summary>Account</summary>
-              <div className="cap-account-menu">
-                <a href="/settings">Settings</a>
-                <a href="/auth/logout">Sign out</a>
-              </div>
-            </details>
+            <>
+              <SchemeSwitch />
+              <details className="cap-account">
+                <summary>Account</summary>
+                <div className="cap-account-menu">
+                  <a href="/settings">Settings</a>
+                  <a href="/auth/logout">Sign out</a>
+                </div>
+              </details>
+            </>
           }
         />
       </div>
       <Shell width="captain" id="main">
         {children}
       </Shell>
-      <footer className="cap-footer">
-        <SchemeSwitch />
-      </footer>
     </div>
   )
 }

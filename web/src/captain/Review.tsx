@@ -1,9 +1,104 @@
+import { useState } from 'react'
 import Button from '../components/Button'
 import { serviceName } from '../crew/format'
-import type { Detail, Pr } from '../api'
-import { limitOf } from './format'
+import type { CaptainDraft, Detail, Pr } from '../api'
+import { asError, limitOf } from './format'
 
-type Props = { detail: Detail; pending: boolean; onHidden: (hidden: number[]) => void }
+type Props = {
+  detail: Detail
+  pending: boolean
+  onHidden: (hidden: number[]) => void
+  onEditDraft: (draftId: string, text: string) => Promise<void>
+}
+
+// One of the captain's posts, with an editor that opens in place while the launch is still a draft.
+function Post({ d, canEdit, onEdit }: { d: CaptainDraft; canEdit: boolean; onEdit: (id: string, text: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(d.text)
+  const [saving, setSaving] = useState(false)
+  const [problem, setProblem] = useState<string>()
+  const limit = limitOf(d.service)
+  const trimmed = text.trim()
+  const over = limit !== undefined && [...trimmed].length > limit
+  const unsent = d.status === 'draft' && !d.bufferPostId
+
+  async function save() {
+    setSaving(true)
+    setProblem(undefined)
+    try {
+      await onEdit(d.id, trimmed)
+      setEditing(false)
+    } catch (e) {
+      setProblem(asError(e).message)
+    }
+    setSaving(false)
+  }
+
+  return (
+    <li className="cap-post">
+      <div className="cap-post-head">
+        <strong>{d.channelName}</strong>
+        <span className={d.status === 'failed' ? 'cap-muted cap-err' : 'cap-muted'}>
+          {serviceName(d.service)} · {d.status === 'draft' && d.bufferPostId ? 'saved as draft' : d.status}
+        </span>
+      </div>
+      {d.note && <p className="cap-muted cap-post-note">{d.note}</p>}
+      {editing ? (
+        <div className="cap-edit">
+          <label className="cap-field">
+            <span className="visually-hidden">Edit post for {d.channelName}</span>
+            <textarea className="field" rows={5} value={text} onChange={(e) => setText(e.target.value)} />
+          </label>
+          <div className="cap-edit-bar">
+            <span className={over ? 'cap-count-line cap-err' : 'cap-count-line cap-muted'}>
+              {[...trimmed].length}
+              {limit ? ` / ${limit}` : ''}
+            </span>
+            <span className="cap-edit-actions">
+              <Button variant="primary" disabled={saving || trimmed === '' || over || trimmed === d.text} onClick={save}>
+                Save post
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={saving}
+                onClick={() => {
+                  setText(d.text)
+                  setProblem(undefined)
+                  setEditing(false)
+                }}
+              >
+                Cancel
+              </Button>
+            </span>
+          </div>
+          {problem && <p className="cap-err" role="alert">{problem}</p>}
+        </div>
+      ) : (
+        <>
+          <p className="cap-post-text">{d.text}</p>
+          <div className="cap-post-foot">
+            {limit && (
+              <span className="cap-count-line cap-muted">
+                {d.text.length} / {limit}
+              </span>
+            )}
+            {canEdit && unsent && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setText(d.text)
+                  setEditing(true)
+                }}
+              >
+                Edit draft<span className="visually-hidden"> for {d.channelName}</span>
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </li>
+  )
+}
 
 function PrRow({ pr, editable, pending, toggle }: { pr: Pr; editable: boolean; pending: boolean; toggle: () => void }) {
   return (
@@ -23,7 +118,7 @@ function PrRow({ pr, editable, pending, toggle }: { pr: Pr; editable: boolean; p
 }
 
 // Left column: headline changes, the captain's own posts, hidden chores.
-export default function Review({ detail, pending, onHidden }: Props) {
+export default function Review({ detail, pending, onHidden, onEditDraft }: Props) {
   const editable = detail.status === 'draft'
   const all = [...detail.headlines, ...detail.chores]
   const toggle = (n: number) => {
@@ -60,21 +155,7 @@ export default function Review({ detail, pending, onHidden }: Props) {
         ) : (
           <ul className="cap-list">
             {posts.map((d) => (
-              <li key={d.id} className="cap-post">
-                <div className="cap-post-head">
-                  <strong>{d.channelName}</strong>
-                  <span className={d.status === 'failed' ? 'cap-muted cap-err' : 'cap-muted'}>
-                    {serviceName(d.service)} · {d.status === 'draft' && d.bufferPostId ? 'saved as draft' : d.status}
-                  </span>
-                </div>
-                {d.note && <p className="cap-muted cap-post-note">{d.note}</p>}
-                <p className="cap-post-text">{d.text}</p>
-                {limitOf(d.service) && (
-                  <span className="cap-count-line cap-muted">
-                    {d.text.length} / {limitOf(d.service)}
-                  </span>
-                )}
-              </li>
+              <Post key={d.id} d={d} canEdit={editable} onEdit={onEditDraft} />
             ))}
           </ul>
         )}

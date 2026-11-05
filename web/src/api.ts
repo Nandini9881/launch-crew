@@ -269,6 +269,8 @@ export const listLaunches = () => captain<LaunchSummary[]>('/launches')
 export const createLaunch = (b: NewLaunch) => captain<Detail>('/launches', json('POST', b))
 export const getLaunch = (id: string) => captain<Detail>(`/launches/${lid(id)}`)
 export const patchLaunch = (id: string, p: Patch) => captain<Detail>(`/launches/${lid(id)}`, json('PATCH', p))
+export const editCaptainDraft = (id: string, draftId: string, text: string) =>
+  captain<Detail>(`/launches/${lid(id)}/drafts/${encodeURIComponent(draftId)}`, json('PATCH', { text }))
 export const pressLaunch = (id: string) => captain<{ status: string }>(`/launches/${lid(id)}/launch`, json('POST'))
 export const retryJob = (id: string, jobId: number) =>
   captain<{ status: string }>(`/launches/${lid(id)}/retry/${jobId}`, json('POST'))

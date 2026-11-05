@@ -240,3 +240,38 @@ func TestCaptainSessionForDeletedUserSignsOut(t *testing.T) {
 		t.Fatalf("cookie not cleared: %v", rr.Result().Cookies())
 	}
 }
+
+func TestCaptainEditDraft(t *testing.T) {
+	e := setupCaptain(t)
+	mine := e.cookie(t, session.Session{UserID: e.owner.ID})
+	var id uuid.UUID
+	if err := e.pool.QueryRow(e.ctx,
+		`INSERT INTO captain_drafts (launch_id, channel_id, text) VALUES ($1, 'ch-1', 'old') RETURNING id`, e.launch.ID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	url := "/api/captain/launches/" + e.launch.ID.String() + "/drafts/" + id.String()
+
+	if rr := e.do("PATCH", url, `{"text":"  A better post  "}`, nil, mine); rr.Code != http.StatusOK {
+		t.Fatalf("edit: %d %s", rr.Code, rr.Body)
+	}
+	var got string
+	if err := e.pool.QueryRow(e.ctx, `SELECT text FROM captain_drafts WHERE id = $1`, id).Scan(&got); err != nil || got != "A better post" {
+		t.Fatalf("stored text %q, err %v", got, err)
+	}
+	if rr := e.do("PATCH", url, `{"text":"   "}`, nil, mine); rr.Code != http.StatusBadRequest {
+		t.Fatalf("empty text: %d %s", rr.Code, rr.Body)
+	}
+	if rr := e.do("PATCH", "/api/captain/launches/"+e.launch.ID.String()+"/drafts/"+uuid.NewString(), `{"text":"x"}`, nil, mine); rr.Code != http.StatusNotFound {
+		t.Fatalf("unknown draft: %d %s", rr.Code, rr.Body)
+	}
+	theirs := e.cookie(t, session.Session{UserID: e.other.ID})
+	if rr := e.do("PATCH", url, `{"text":"hijack"}`, nil, theirs); rr.Code != http.StatusNotFound {
+		t.Fatalf("someone else's launch: %d %s", rr.Code, rr.Body)
+	}
+	if _, err := e.pool.Exec(e.ctx, `UPDATE captain_drafts SET buffer_post_id = 'p1' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	if rr := e.do("PATCH", url, `{"text":"too late"}`, nil, mine); rr.Code != http.StatusBadRequest {
+		t.Fatalf("sent draft: %d %s", rr.Code, rr.Body)
+	}
+}

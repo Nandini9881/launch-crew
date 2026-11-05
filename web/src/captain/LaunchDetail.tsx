@@ -4,6 +4,7 @@ import { pressLaunch, retryJob, type Detail, type Patch } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Loader from '../components/Loader'
+import Plane from '../components/Plane'
 import Crew from './Crew'
 import Frame from './Frame'
 import { asError, stamp } from './format'
@@ -27,12 +28,36 @@ function Steps({ detail, launched }: { detail: Detail; launched: boolean }) {
   const now = raw.findIndex((s) => !s.done)
   const steps: Step[] = raw.map((s, i) => ({ name: s.name, note: s.note, state: s.done ? 'done' : i === now ? 'now' : 'next' }))
   if (!crewing && now === 2) steps[2].note = 'no one yet'
+  const last = steps.length - 1
   return (
-    <ol className="cap-steps" aria-label="Progress">
-      {steps.map((s) => (
-        <li key={s.name} className={`cap-step cap-step-${s.state}`} aria-current={s.state === 'now' ? 'step' : undefined}>
-          <strong>{s.name}</strong>
-          <span className="cap-muted">{s.note}</span>
+    <ol className="cap-flight" aria-label="Progress">
+      {steps.map((s, i) => (
+        <li key={s.name} className={`cap-leg cap-leg-${s.state}`} aria-current={s.state === 'now' ? 'step' : undefined}>
+          <span className="cap-leg-air" aria-hidden="true">
+            {s.state === 'now' && (
+              <>
+                <span className="cap-trail cap-trail-far" />
+                <span className="cap-trail cap-trail-near" />
+                <Plane deg={90} className="cap-leg-plane" />
+              </>
+            )}
+          </span>
+          <span className="cap-leg-track" aria-hidden="true">
+            <span className={i === 0 ? 'cap-line cap-line-none' : s.state === 'next' ? 'cap-line cap-line-dashed' : 'cap-line'} />
+            <span className="cap-node">
+              {s.state === 'done' && (
+                <svg viewBox="0 0 11 11">
+                  <path d="M1 5.5 L4 8.5 L10 2" />
+                </svg>
+              )}
+              {s.state === 'now' && <span className="cap-node-dot" />}
+            </span>
+            <span className={i === last ? 'cap-line cap-line-none' : s.state === 'done' ? 'cap-line' : 'cap-line cap-line-dashed'} />
+          </span>
+          <span className="cap-leg-text">
+            <strong>{s.name}</strong>
+            <span className="cap-muted">{s.note}</span>
+          </span>
         </li>
       ))}
     </ol>
@@ -41,7 +66,7 @@ function Steps({ detail, launched }: { detail: Detail; launched: boolean }) {
 
 export default function LaunchDetail() {
   const id = useParams().id ?? ''
-  const { detail, error, reload, patch } = useLaunch(id)
+  const { detail, error, reload, patch, editDraft } = useLaunch(id)
   const [pending, setPending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string>()
@@ -59,6 +84,11 @@ export default function LaunchDetail() {
     setPending(false)
   }
   const save = (p: Patch) => run(() => patch(p))
+  // Timing saves itself as the captain types, so it handles its own errors.
+  const saveTiming = async (p: Patch) => {
+    setNotice(undefined)
+    await patch(p)
+  }
 
   async function launch() {
     setBusy(true)
@@ -119,8 +149,17 @@ export default function LaunchDetail() {
       <Steps detail={detail} launched={launched} />
       {notice && <Alert tone="error">{notice}</Alert>}
       <div className="cap-grid">
-        <Review detail={detail} pending={pending} onHidden={(hiddenPrs) => save({ hiddenPrs })} />
         <div className="cap-col">
+          <Review
+            detail={detail}
+            pending={pending}
+            onHidden={(hiddenPrs) => save({ hiddenPrs })}
+            onEditDraft={(draftId, text) => editDraft(draftId, text)}
+          />
+          <Crew detail={detail} pending={pending} onTicked={(tickedCrew) => save({ tickedCrew })} />
+        </div>
+        <div className="cap-col">
+          <Timing detail={detail} onSave={saveTiming} />
           <Preflight
             checks={detail.checks}
             launched={launched}
@@ -128,8 +167,6 @@ export default function LaunchDetail() {
             error={launchError}
             onLaunch={launch}
           />
-          <Crew detail={detail} pending={pending} onTicked={(tickedCrew) => save({ tickedCrew })} />
-          <Timing key={`${detail.launchAt}-${detail.windowMinutes}`} detail={detail} onSave={save} />
           {manual && detail.status === 'draft' && (
             <p className="cap-muted">Link, slide and PNG appear after Launch.</p>
           )}

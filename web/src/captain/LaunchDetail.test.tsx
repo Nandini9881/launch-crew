@@ -180,3 +180,41 @@ test('launched manual launch shows link, slide and PNG', async () => {
   expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument()
   expect(screen.queryByText('Link, slide and PNG appear after Launch.')).toBeNull()
 })
+
+test('a captain post can be edited in place while the launch is a draft', async () => {
+  const d = detail({
+    captainDrafts: [
+      { id: 'cd1', channelId: 'c1', channelName: 'launchcrew', service: 'twitter', text: 'old text', status: 'draft', bufferPostId: '', note: '' },
+    ],
+  })
+  const calls = mockApi({ detail: d })
+  const user = userEvent.setup()
+  visit('/captain/launches/l1')
+  await user.click(await screen.findByRole('button', { name: /edit draft/i }))
+  const box = screen.getByRole('textbox', { name: /edit post for launchcrew/i })
+  await user.clear(box)
+  await user.type(box, 'a better post')
+  await user.click(screen.getByRole('button', { name: /save post/i }))
+  const patch = calls.find((c) => c.method === 'PATCH' && c.url.endsWith('/drafts/cd1'))
+  expect(patch?.body).toEqual({ text: 'a better post' })
+})
+
+test('a post that already went to Buffer has no edit button', async () => {
+  mockApi({
+    detail: detail({
+      captainDrafts: [
+        { id: 'cd1', channelId: 'c1', channelName: 'launchcrew', service: 'twitter', text: 'sent', status: 'draft', bufferPostId: 'p1', note: '' },
+      ],
+    }),
+  })
+  visit('/captain/launches/l1')
+  await screen.findByText('sent')
+  expect(screen.queryByRole('button', { name: /edit draft/i })).toBeNull()
+})
+
+test('the appearance switch lives in the top bar', async () => {
+  mockApi()
+  visit('/captain/launches/l1')
+  const nav = (await screen.findAllByRole('banner'))[0]
+  expect(within(nav).getByRole('radio', { name: 'Dark' })).toBeInTheDocument()
+})

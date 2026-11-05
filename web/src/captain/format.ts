@@ -47,3 +47,20 @@ export const initials = (name: string) =>
 // Tone for a crew state word: green when in, red when out or failed, grey while waiting.
 export const stateTone = (state: string): 'ok' | 'err' | 'wait' =>
   /approved|queued|posted|in$/.test(state) ? 'ok' : /failed|opted|declined|removed/.test(state) ? 'err' : 'wait'
+
+const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone
+
+export const zone = () => tz().replace(/_/g, ' ')
+
+// 24-hour clock time of an instant, as the timing card shows it.
+export const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+
+// "Thu 6 Nov, 14:30"
+export const moment = (iso: string) => {
+  const d = new Date(iso)
+  const day = d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })
+  return `${day}, ${clock(iso)}`
+}
+
+export const plusMinutes = (iso: string, minutes: number) => new Date(new Date(iso).getTime() + minutes * 60000).toISOString()

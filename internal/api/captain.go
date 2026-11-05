@@ -37,6 +37,7 @@ func NewCaptain(deps launch.Deps, sessions *session.Store) http.Handler {
 		r.Use(c.owns)
 		r.Get("/", c.detail)
 		r.Patch("/", c.patch)
+		r.Patch("/drafts/{draftID}", c.editDraft)
 		r.Post("/launch", c.launch)
 		r.Post("/retry/{jobID}", c.retry)
 	})
@@ -178,6 +179,25 @@ func (c *Captain) patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := launch.Update(r.Context(), c.deps, launchID(r), p); err != nil {
+		c.fail(w, r, err)
+		return
+	}
+	c.writeDetail(w, r, launchID(r), http.StatusOK)
+}
+
+func (c *Captain) editDraft(w http.ResponseWriter, r *http.Request) {
+	draftID, err := uuid.Parse(chi.URLParam(r, "draftID"))
+	if err != nil {
+		notFound(w, r)
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if err := launch.EditCaptainDraft(r.Context(), c.deps, launchID(r), draftID, body.Text); err != nil {
 		c.fail(w, r, err)
 		return
 	}
