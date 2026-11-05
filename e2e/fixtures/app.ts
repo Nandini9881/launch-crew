@@ -74,6 +74,8 @@ export async function releaseLaunch(rq: APIRequestContext): Promise<string> {
 
 /** Sets the launch moment on the captain detail page. */
 export async function setLaunchTime(page: Page, minutesFromNow: number) {
+  // The editor opens by itself while no time is set; otherwise it sits behind "Change".
+  await expect(page.getByRole('heading', { name: 'Timing' })).toBeVisible()
   const field = page.getByLabel('Launch moment')
   if (!(await field.isVisible())) await page.getByRole('button', { name: 'Change moment or window' }).click()
   await field.fill(localInput(minutesFromNow))
