@@ -106,6 +106,10 @@ func TestStartRedirectsWithPKCE(t *testing.T) {
 	if q.Get("client_id") != "cid" || q.Get("response_type") != "code" || q.Get("scope") != "account:read posts:read posts:write offline_access" {
 		t.Fatalf("params: %v", q)
 	}
+	// Without it Buffer can reuse an earlier consent and issue no refresh token.
+	if q.Get("prompt") != "consent" {
+		t.Fatalf("prompt = %q, want consent", q.Get("prompt"))
+	}
 }
 
 func TestCallbackRejectsStateMismatch(t *testing.T) {

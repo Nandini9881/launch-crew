@@ -93,7 +93,7 @@ func (b *BufferOAuth) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// signup=1 is accepted and ignored for now.
-	http.Redirect(w, r, b.config().AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), http.StatusFound)
+	http.Redirect(w, r, b.config().AuthCodeURL(state, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("prompt", "consent")), http.StatusFound)
 }
 
 // Callback completes the flow: verify state, exchange the code, upsert the connection, sign in.
