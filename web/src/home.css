@@ -138,7 +138,10 @@
   position: absolute;
   inset-inline: var(--space-md);
   z-index: 1;
-  opacity: 0.55;
+
+  /* Decorative and hidden from assistive tech: fade with a filter so the text under it
+     is not measured for contrast as if someone had to read it. */
+  filter: opacity(0.55);
 }
 
 .home-stack-back-a {
