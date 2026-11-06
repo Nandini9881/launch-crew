@@ -124,6 +124,7 @@ func TestCaptainRoutesNeedTheOwner(t *testing.T) {
 		{"PATCH", base, `{"title":"mine now"}`},
 		{"POST", base + "/launch", ""},
 		{"POST", base + "/retry/1", ""},
+		{"POST", base + "/channels/refresh", ""},
 		{"PATCH", "/api/captain/repos/" + e.repo.ID.String(), `{"enabled":false}`},
 	} {
 		if rr := e.do(c.method, c.path, c.body, nil, theirs); rr.Code != http.StatusNotFound {
@@ -332,5 +333,31 @@ func TestCaptainSkipRestoreAndLogoFields(t *testing.T) {
 	rr := e.do("GET", "/api/captain/launches", "", nil, mine)
 	if rr.Code != 200 || !strings.Contains(rr.Body.String(), `"crewInitials":[]`) || !strings.Contains(rr.Body.String(), `"prCount":0`) || !strings.Contains(rr.Body.String(), `"repo":""`) {
 		t.Fatalf("list: %d %s", rr.Code, rr.Body)
+	}
+}
+
+func TestCaptainRefreshChannels(t *testing.T) {
+	e := setupCaptain(t)
+	mine := e.cookie(t, session.Session{UserID: e.owner.ID})
+	rr := e.do("POST", "/api/captain/launches/"+e.launch.ID.String()+"/channels/refresh", "", nil, mine)
+	if rr.Code != http.StatusOK || decode(t, rr)["channels"] != float64(0) {
+		t.Fatalf("refresh: %d %s", rr.Code, rr.Body)
+	}
+}
+
+func TestCaptainRefreshChannelsNeedsBuffer(t *testing.T) {
+	e := setupCaptain(t)
+	l, err := e.q.CreateLaunch(e.ctx, sqlc.CreateLaunchParams{
+		OwnerUserID: e.other.ID, Source: "manual", Title: "No Buffer", HeadlineChanges: []byte(`[]`), Roles: []byte(`[]`),
+		LaunchAt:      pgtype.Timestamptz{Time: time.Now().Add(2 * time.Hour), Valid: true},
+		WindowMinutes: 90, CrewCap: 200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs := e.cookie(t, session.Session{UserID: e.other.ID})
+	rr := e.do("POST", "/api/captain/launches/"+l.ID.String()+"/channels/refresh", "", nil, theirs)
+	if rr.Code != http.StatusConflict || decode(t, rr)["error"] != "no_buffer" {
+		t.Fatalf("no buffer: %d %s", rr.Code, rr.Body)
 	}
 }

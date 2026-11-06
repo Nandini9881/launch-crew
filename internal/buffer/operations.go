@@ -121,6 +121,22 @@ func (c *Client) Channels(ctx context.Context, connID uuid.UUID) ([]Channel, err
 	return chs, nil
 }
 
+// RefreshChannels drops the cached channel list and reads it again from
+// Buffer. A cache under refreshFloor old is kept, so repeated calls do not
+// spend Buffer's rate budget.
+func (c *Client) RefreshChannels(ctx context.Context, connID uuid.UUID) ([]Channel, error) {
+	conn, err := c.q.GetBufferConnection(ctx, connID)
+	if err != nil {
+		return nil, fmt.Errorf("buffer: load connection: %w", err)
+	}
+	if !conn.ChannelsCachedAt.Valid || c.now().Sub(conn.ChannelsCachedAt.Time) >= refreshFloor {
+		if err := c.q.UpdateConnectionChannelsCache(ctx, sqlc.UpdateConnectionChannelsCacheParams{ID: connID}); err != nil {
+			return nil, fmt.Errorf("buffer: clear channel cache: %w", err)
+		}
+	}
+	return c.Channels(ctx, connID)
+}
+
 func (c *Client) saveCache(ctx context.Context, connID uuid.UUID, v any, save func([]byte, pgtype.Timestamptz) error) {
 	b, err := json.Marshal(v)
 	if err == nil {

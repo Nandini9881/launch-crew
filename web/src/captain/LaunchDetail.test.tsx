@@ -44,6 +44,8 @@ const detail = (over: Partial<Detail> = {}): Detail => ({
 
 type Call = { method: string; url: string; body?: unknown }
 
+let refreshReply = () => Promise.resolve(new Response(JSON.stringify({ channels: 3 }), { status: 200 }))
+
 function mockApi(routes: { detail?: Detail; list?: LaunchSummary[] } = {}) {
   const calls: Call[] = []
   vi.stubGlobal(
@@ -53,6 +55,7 @@ function mockApi(routes: { detail?: Detail; list?: LaunchSummary[] } = {}) {
       calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
       const ok = (b: unknown, s = 200) => Promise.resolve(new Response(JSON.stringify(b), { status: s }))
       if (url === '/api/captain/launches' && method === 'GET') return ok(routes.list ?? [])
+      if (url.endsWith('/channels/refresh')) return refreshReply()
       if (url.includes('/retry/')) return ok({ status: 'retrying' }, 202)
       return ok(routes.detail ?? detail())
     }),
@@ -68,7 +71,10 @@ function visit(path: string) {
   )
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  refreshReply = () => Promise.resolve(new Response(JSON.stringify({ channels: 3 }), { status: 200 }))
+})
 
 test('launch disabled label counts red checks', async () => {
   mockApi({ detail: detail({ checks: checks(2) }) })
@@ -344,4 +350,35 @@ test('before launch the share hint stays and there is no share panel', async () 
   visit('/captain/launches/l1')
   expect(await screen.findByText('Link, slide and PNG appear after Launch.')).toBeInTheDocument()
   expect(screen.queryByRole('region', { name: 'Share at the event' })).toBeNull()
+})
+
+test('refresh channels calls the API, reloads and shows the count', async () => {
+  const calls = mockApi()
+  visit('/captain/launches/l1')
+  await userEvent.click(await screen.findByRole('button', { name: 'Refresh channels' }))
+  expect(await screen.findByText('Checked Buffer: 3 channels.')).toBeInTheDocument()
+  const i = calls.findIndex((c) => c.method === 'POST' && c.url === '/api/captain/launches/l1/channels/refresh')
+  expect(i).toBeGreaterThan(-1)
+  expect(calls.slice(i + 1).some((c) => c.method === 'GET' && c.url === '/api/captain/launches/l1')).toBe(true)
+})
+
+test('refresh channels shows an error when Buffer cannot be reached', async () => {
+  mockApi()
+  refreshReply = () => Promise.resolve(new Response(JSON.stringify({ error: 'internal', message: 'x' }), { status: 500 }))
+  visit('/captain/launches/l1')
+  await userEvent.click(await screen.findByRole('button', { name: 'Refresh channels' }))
+  expect(await screen.findByText('Could not reach Buffer, try again.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Refresh channels' })).toBeEnabled()
+})
+
+test('no refresh channels button once launched or without Buffer', async () => {
+  mockApi({ detail: detail({ status: 'launched' }) })
+  const { unmount } = visit('/captain/launches/l1')
+  await screen.findByRole('heading', { level: 1 })
+  expect(screen.queryByRole('button', { name: 'Refresh channels' })).toBeNull()
+  unmount()
+  mockApi({ detail: detail({ bufferConnected: false }) })
+  visit('/captain/launches/l1')
+  await screen.findByRole('heading', { level: 1 })
+  expect(screen.queryByRole('button', { name: 'Refresh channels' })).toBeNull()
 })

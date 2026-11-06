@@ -32,6 +32,7 @@ var (
 	ErrAlreadyLaunched = errors.New("launch: already launched")
 	ErrNotDraft        = errors.New("launch: only a draft launch can be edited")
 	ErrInvalid         = errors.New("launch: invalid")
+	ErrNoBuffer        = errors.New("launch: no Buffer connection")
 )
 
 const (
@@ -70,6 +71,34 @@ type Deps struct {
 	PostTimeout time.Duration
 	// AllowLoopback lets the hero fetch reach loopback. Tests only.
 	AllowLoopback bool
+}
+
+// RefreshChannels re-reads the owner's Buffer channels, bypassing the cache,
+// and returns how many there are.
+func RefreshChannels(ctx context.Context, d Deps, id uuid.UUID) (int, error) {
+	l, err := getLaunch(ctx, d.Q, id)
+	if err != nil {
+		return 0, err
+	}
+	conns, err := d.Q.ListConnectionsByUser(ctx, l.OwnerUserID.UUID)
+	if err != nil {
+		return 0, err
+	}
+	var conn *sqlc.BufferConnection
+	for i := range conns {
+		if conns[i].Status == "ok" {
+			conn = &conns[i]
+			break
+		}
+	}
+	if conn == nil || d.Buffer == nil {
+		return 0, ErrNoBuffer
+	}
+	chs, err := d.Buffer.RefreshChannels(ctx, conn.ID)
+	if err != nil {
+		return 0, err
+	}
+	return len(chs), nil
 }
 
 func (d Deps) now() time.Time {

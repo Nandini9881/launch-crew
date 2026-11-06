@@ -10,6 +10,8 @@ type Props = {
   onHidden: (hidden: number[]) => void
   onEditDraft: (draftId: string, text: string) => Promise<void>
   onSkipDraft: (draftId: string, skipped: boolean) => Promise<void>
+  // Re-reads the captain's Buffer channels and reloads the launch; resolves to the channel count.
+  onRefreshChannels: () => Promise<number>
 }
 
 // One of the captain's posts, with an editor that opens in place while the launch is still a draft.
@@ -166,8 +168,22 @@ function PrRow({ pr, editable, pending, toggle }: { pr: Pr; editable: boolean; p
 }
 
 // Left column: headline changes, the captain's own posts, hidden chores.
-export default function Review({ detail, pending, onHidden, onEditDraft, onSkipDraft }: Props) {
+export default function Review({ detail, pending, onHidden, onEditDraft, onSkipDraft, onRefreshChannels }: Props) {
   const editable = detail.status === 'draft'
+  const [checking, setChecking] = useState(false)
+  const [checked, setChecked] = useState('')
+  const refresh = async () => {
+    setChecking(true)
+    setChecked('')
+    try {
+      const n = await onRefreshChannels()
+      setChecked(`Checked Buffer: ${n} ${n === 1 ? 'channel' : 'channels'}.`)
+    } catch {
+      setChecked('Could not reach Buffer, try again.')
+    } finally {
+      setChecking(false)
+    }
+  }
   const all = [...detail.headlines, ...detail.chores]
   const toggle = (n: number) => {
     const hidden = new Set(all.filter((p) => p.hidden).map((p) => p.prNumber))
@@ -196,9 +212,21 @@ export default function Review({ detail, pending, onHidden, onEditDraft, onSkipD
       )}
       <section className="cap-section panel" aria-labelledby="cap-posts">
         <h2 id="cap-posts">Your posts</h2>
-        {posts.length > 0 && editable && (
-          <p className="cap-muted cap-hint">Posts go to each channel you keep. Remove one to skip that channel.</p>
+        {editable && (posts.length > 0 || detail.bufferConnected) && (
+          <div className="cap-posts-head">
+            {posts.length > 0 && (
+              <p className="cap-muted cap-hint">Posts go to each channel you keep. Remove one to skip that channel.</p>
+            )}
+            {detail.bufferConnected && (
+              <Button variant="secondary" disabled={checking} busy={checking} onClick={refresh}>
+                {checking ? 'Checking Buffer...' : 'Refresh channels'}
+              </Button>
+            )}
+          </div>
         )}
+        <p className="cap-muted cap-hint" role="status">
+          {checked}
+        </p>
         {posts.length === 0 ? (
           <p className="cap-muted">
             {detail.bufferConnected ? 'Building your posts...' : 'Connect Buffer to see your posts here.'}
