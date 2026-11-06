@@ -22,10 +22,19 @@ const repoIcon = (
   </svg>
 )
 
-function Switch({ label, name, checked, onChange }: { label: string; name: string; checked: boolean; onChange: (v: boolean) => void }) {
+type SwitchProps = { label: string; name: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void }
+
+function Switch({ label, name, checked, disabled, onChange }: SwitchProps) {
   return (
     <label className="rp-switch">
-      <input type="checkbox" role="switch" checked={checked} aria-label={`${name}: ${label.toLowerCase()}`} onChange={(e) => onChange(e.target.checked)} />
+      <input
+        type="checkbox"
+        role="switch"
+        checked={checked}
+        disabled={disabled}
+        aria-label={`${name}: ${label.toLowerCase()}`}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       <span className="rp-track" aria-hidden="true">
         <span className="rp-thumb" />
       </span>
@@ -38,6 +47,9 @@ export default function Repos() {
   const [repos, setRepos] = useState<Repo[]>()
   const [error, setError] = useState<ApiError>()
   const [attempt, setAttempt] = useState(0)
+  // Per-row state: which repo has a PATCH in flight, and the last failure for each.
+  const [saving, setSaving] = useState<Record<string, boolean>>({})
+  const [rowError, setRowError] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let live = true
@@ -54,13 +66,19 @@ export default function Repos() {
     setAttempt((n) => n + 1)
   }
 
+  // Flip at once, hold the row while it saves, and put it back with the reason if it fails.
   async function toggle(r: Repo, p: { enabled?: boolean; allowPrerelease?: boolean }) {
-    setError(undefined)
+    const put = (next: Repo) => setRepos((rs) => rs?.map((x) => (x.id === next.id ? next : x)))
+    setRowError((m) => ({ ...m, [r.id]: '' }))
+    setSaving((m) => ({ ...m, [r.id]: true }))
+    put({ ...r, ...p })
     try {
-      const next = await patchRepo(r.id, p)
-      setRepos((rs) => rs?.map((x) => (x.id === next.id ? next : x)))
+      put(await patchRepo(r.id, p))
     } catch (e) {
-      setError(asError(e))
+      put(r)
+      setRowError((m) => ({ ...m, [r.id]: asError(e).message }))
+    } finally {
+      setSaving((m) => ({ ...m, [r.id]: false }))
     }
   }
 
@@ -115,10 +133,21 @@ export default function Repos() {
                 <strong>{r.fullName}</strong>
                 <span>{r.enabled ? (r.allowPrerelease ? 'Watching releases and prereleases' : 'Watching releases') : 'Paused'}</span>
               </span>
-              <span className="rp-switches">
-                <Switch label="Watch releases" name={r.fullName} checked={r.enabled} onChange={(v) => toggle(r, { enabled: v })} />
-                <Switch label="Include prereleases" name={r.fullName} checked={r.allowPrerelease} onChange={(v) => toggle(r, { allowPrerelease: v })} />
+              <span className="rp-switches" aria-busy={saving[r.id] || undefined}>
+                <Switch label="Watch releases" name={r.fullName} checked={r.enabled} disabled={saving[r.id]} onChange={(v) => toggle(r, { enabled: v })} />
+                <Switch
+                  label="Include prereleases"
+                  name={r.fullName}
+                  checked={r.allowPrerelease}
+                  disabled={saving[r.id]}
+                  onChange={(v) => toggle(r, { allowPrerelease: v })}
+                />
               </span>
+              {rowError[r.id] && (
+                <span className="rp-row-error" role="alert">
+                  {rowError[r.id]} Try again.
+                </span>
+              )}
             </li>
           ))}
         </ul>
