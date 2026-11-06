@@ -430,3 +430,23 @@ test('no retry button for a comment that did not fail', async () => {
   await screen.findByText('Maya Kapoor')
   expect(screen.queryByRole('button', { name: /Retry comment/ })).toBeNull()
 })
+
+test('offline shows a plain message and Retry loads the launch', async () => {
+  const fetchMock = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValue(new Response(JSON.stringify(detail()), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+  visit('/captain/launches/l1')
+  expect(await screen.findByRole('heading', { level: 1, name: 'Could not load this launch' })).toBeInTheDocument()
+  expect(screen.getByText('Could not reach Launch Crew. Check your connection and try again.')).toBeInTheDocument()
+  expect(screen.queryByText(/Failed to fetch/)).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'rocket v1.2.0' })).toBeInTheDocument()
+})
+
+test('a 404 launch has no Retry, since trying again will not help', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: 'not_found' }), { status: 404 }))))
+  visit('/captain/launches/l1')
+  expect(await screen.findByRole('heading', { level: 1, name: 'Launch not found' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+})

@@ -26,6 +26,25 @@ const BUSY = 'Buffer is not answering, try again'
 
 const passDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
+// One reconnect per 401: the flag survives the OAuth round trip, so coming back to another
+// 401 shows a message instead of bouncing to Buffer again. Storage may be blocked; then we bounce.
+const reconnectKey = (token: string) => `lc-reconnect:${token}`
+const triedReconnect = (token: string) => {
+  try {
+    return sessionStorage.getItem(reconnectKey(token)) === '1'
+  } catch {
+    return false
+  }
+}
+const setTriedReconnect = (token: string, on: boolean) => {
+  try {
+    if (on) sessionStorage.setItem(reconnectKey(token), '1')
+    else sessionStorage.removeItem(reconnectKey(token))
+  } catch {
+    /* storage blocked: nothing to remember */
+  }
+}
+
 function TrustStrip({ memberId, token }: { memberId?: string; token: string }) {
   const navigate = useNavigate()
   const [asking, setAsking] = useState(false)
@@ -103,6 +122,7 @@ export default function Approve() {
   const [voice, setVoice] = useState(false)
   const [kept, setKept] = useState(false)
   const [rewriting, setRewriting] = useState(false)
+  const [bounced, setBounced] = useState(false)
   const tune = useRef<HTMLButtonElement>(null)
   const texts = useRef<Record<string, string>>({})
   const inflight = useRef(false)
@@ -116,6 +136,7 @@ export default function Approve() {
     connect(memberId, token).then(
       (d) => {
         if (!live) return
+        setTriedReconnect(token, false)
         setData(d)
         setChecked(Object.fromEntries(d.channels.map((c) => [c.id, c.eligible && c.checked])))
         setTiming(d.timing[0] ?? 'queue')
@@ -146,9 +167,22 @@ export default function Approve() {
     }
   }
 
+  // Buffer rejected the token: reconnect once, and if that lands on another 401 say so.
+  const goReconnect = () => {
+    if (triedReconnect(token)) {
+      setTriedReconnect(token, false)
+      setBounced(true)
+      return
+    }
+    setTriedReconnect(token, true)
+    window.location.assign(reconnect)
+  }
+
   useEffect(() => {
-    if (fail?.status === 401) window.location.assign(reconnect)
+    if (fail?.status === 401) goReconnect()
     if (fail?.code === 'verify_first') navigate(`/s/${encodeURIComponent(token)}`)
+    // goReconnect only reads token and reconnect, both already listed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fail, reconnect, navigate, token])
 
   const { fresh, polling, restart, adopt } = useDrafts(memberId, token, !!data && !data.voicedReady)
@@ -210,7 +244,7 @@ export default function Approve() {
         navigate(`/s/${encodeURIComponent(token)}/done`, { state: { outcomes: Object.values(all) } })
       }
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) window.location.assign(reconnect)
+      if (e instanceof ApiError && e.status === 401) goReconnect()
       else if (e instanceof ApiError && e.code === 'window_closed') {
         setMessage(e.message)
         setTiming('queue')
@@ -241,6 +275,18 @@ export default function Approve() {
     saveDraft(memberId, token, draftId, text).catch((e) => {
       if (e instanceof ApiError && e.code === 'already_queued') setLocked((l) => new Set(l).add(draftId))
     })
+  }
+
+  if (bounced) {
+    return (
+      <CrewFrame footer>
+        <Alert tone="error">Buffer did not accept the connection. Reconnect to try again, or share another way.</Alert>
+        <div className="crew-actions">
+          <a className="btn btn-primary" href={reconnect}>Reconnect Buffer</a>
+          <Link className="btn btn-secondary" to={`/s/${encodeURIComponent(token)}/fallback`}>Other ways to share</Link>
+        </div>
+      </CrewFrame>
+    )
   }
 
   if (fail?.status === 502) {

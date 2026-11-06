@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { listRepos, patchRepo, type ApiError, type Repo } from '../api'
 import Alert from '../components/Alert'
+import Button from '../components/Button'
 import Loader from '../components/Loader'
 import Frame from './Frame'
 import { asError } from './format'
@@ -36,6 +37,7 @@ function Switch({ label, name, checked, onChange }: { label: string; name: strin
 export default function Repos() {
   const [repos, setRepos] = useState<Repo[]>()
   const [error, setError] = useState<ApiError>()
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -45,7 +47,12 @@ export default function Repos() {
     return () => {
       live = false
     }
-  }, [])
+  }, [attempt])
+
+  const retry = () => {
+    setError(undefined)
+    setAttempt((n) => n + 1)
+  }
 
   async function toggle(r: Repo, p: { enabled?: boolean; allowPrerelease?: boolean }) {
     setError(undefined)
@@ -76,7 +83,12 @@ export default function Repos() {
         </div>
         {add}
       </div>
-      {error && <Alert tone="error">{error.message}</Alert>}
+      {error && (
+        <Alert tone="error">
+          {error.message}{' '}
+          {!repos && <Button variant="secondary" onClick={retry}>Retry</Button>}
+        </Alert>
+      )}
       {!repos ? (
         !error && (
           <div aria-busy="true">

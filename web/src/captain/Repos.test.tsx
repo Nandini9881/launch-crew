@@ -52,3 +52,20 @@ test('no repos shows a friendly empty state with the add button', async () => {
   expect(screen.getAllByRole('link', { name: 'Add a repo' }).length).toBeGreaterThan(0)
   expect(screen.getByText(/creates a draft launch/)).toBeInTheDocument()
 })
+
+test('offline shows a plain message and Retry fetches again', async () => {
+  const fetchMock = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce(new Response(JSON.stringify([repo()]), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+  render(
+    <MemoryRouter>
+      <Repos />
+    </MemoryRouter>,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach Launch Crew. Check your connection and try again.')
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByText('acme/rocket')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})

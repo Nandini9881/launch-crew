@@ -457,3 +457,22 @@ test('with no channel ticked the primary button names what is missing', async ()
   await user.click(screen.getByRole('checkbox', { name: /^Ada on X/ }))
   expect(screen.getByRole('button', { name: 'Add to my queue' })).toBeEnabled()
 })
+
+test('a 401 sends the person to reconnect once; a second 401 straight after shows a message, not a loop', async () => {
+  const assign = vi.fn()
+  vi.stubGlobal('location', { ...window.location, assign })
+  sessionStorage.clear()
+  mockApi({ connect: { status: 401, error: 'reconnect', message: 'Buffer token expired' } })
+  const first = visit()
+  await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/buffer/start?return_to=/s/tok1/approve'))
+  first.unmount()
+
+  // Back from OAuth and Buffer still says 401: do not bounce again.
+  assign.mockClear()
+  mockApi({ connect: { status: 401, error: 'reconnect', message: 'Buffer token expired' } })
+  visit()
+  expect(await screen.findByRole('link', { name: 'Reconnect Buffer' })).toHaveAttribute('href', '/auth/buffer/start?return_to=/s/tok1/approve')
+  expect(screen.getByRole('alert')).toHaveTextContent(/Buffer did not accept the connection/)
+  expect(assign).not.toHaveBeenCalled()
+  sessionStorage.clear()
+})

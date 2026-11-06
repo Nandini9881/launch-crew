@@ -173,10 +173,16 @@ export default function LaunchDetail() {
   }
 
   if (error && !detail) {
+    const missing = error.status === 404
     return (
       <Frame>
-        <h1>{error.status === 404 ? 'Launch not found' : 'Could not load this launch'}</h1>
-        <p>{error.status === 404 ? 'It may belong to another captain.' : error.message}</p>
+        <h1>{missing ? 'Launch not found' : 'Could not load this launch'}</h1>
+        <p>{missing ? 'It may belong to another captain.' : error.message}</p>
+        {!missing && (
+          <p>
+            <Button variant="secondary" onClick={() => reload()}>Retry</Button>
+          </p>
+        )}
       </Frame>
     )
   }
