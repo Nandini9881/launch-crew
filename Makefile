@@ -13,7 +13,7 @@ web:
 	cd web && npm ci && npm run build
 
 test: web
-	go test -p 1 ./...
+	go test -race -p 1 ./...
 	cd web && npm test
 
 build: web
