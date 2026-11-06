@@ -2,9 +2,11 @@ package session_test
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -41,7 +43,12 @@ func TestSessionRoundTrip(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(c)
-	if got := st.Get(req); got != want {
+	got := st.Get(req)
+	if got.IssuedAt.IsZero() || time.Since(got.IssuedAt) > time.Minute {
+		t.Fatalf("issued at %v, want about now", got.IssuedAt)
+	}
+	got.IssuedAt = time.Time{}
+	if got != want {
 		t.Fatalf("got %+v want %+v", got, want)
 	}
 
@@ -64,5 +71,46 @@ func TestSessionRoundTrip(t *testing.T) {
 	st.Clear(rr)
 	if c := rr.Result().Cookies()[0]; c.Name != "lc_s" || c.MaxAge >= 0 {
 		t.Fatalf("clear: %+v", c)
+	}
+}
+
+// A copied cookie must stop working on its own, not only when KEYRING rotates.
+func TestSessionExpiresByIssuedAt(t *testing.T) {
+	st := newStore(t)
+	now := time.Now()
+	st.Now = func() time.Time { return now }
+	want := session.Session{UserID: uuid.New()}
+
+	issue := func(t *testing.T, at time.Time) *http.Cookie {
+		t.Helper()
+		st.Now = func() time.Time { return at }
+		rr := httptest.NewRecorder()
+		if err := st.Set(rr, want); err != nil {
+			t.Fatal(err)
+		}
+		st.Now = func() time.Time { return now }
+		return rr.Result().Cookies()[0]
+	}
+	get := func(c *http.Cookie) session.Session {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.AddCookie(c)
+		return st.Get(req)
+	}
+
+	if got := get(issue(t, now.Add(-29*24*time.Hour))); got.UserID != want.UserID {
+		t.Fatalf("29 days old: got %+v", got)
+	}
+	if got := get(issue(t, now.Add(-31*24*time.Hour))); got != (session.Session{}) {
+		t.Fatalf("31 days old: got %+v, want signed out", got)
+	}
+	// A cookie minted before IssuedAt existed carries none and is signed out too.
+	plain, _ := json.Marshal(struct{ UserID uuid.UUID }{want.UserID})
+	enc, _, err := st.Keyring.Encrypt(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := &http.Cookie{Name: "lc_s", Value: base64.RawURLEncoding.EncodeToString(enc)}
+	if got := get(legacy); got != (session.Session{}) {
+		t.Fatalf("no IssuedAt: got %+v, want signed out", got)
 	}
 }
