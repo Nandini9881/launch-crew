@@ -46,6 +46,10 @@ WHERE locked_at IS NOT NULL AND locked_at < now() - sqlc.arg('older_than')::inte
 -- name: CountLiveJobsOfKind :one
 SELECT count(*) FROM jobs WHERE kind = $1 AND dead = false;
 
+-- name: CountLiveJobsOfKindForLaunch :one
+-- A dead-lettered row is not a scheduled job: a retried LaunchJob enqueues again.
+SELECT count(*) FROM jobs WHERE kind = $1 AND launch_id = $2 AND dead = false;
+
 -- name: CountLiveMemberJobs :one
 SELECT count(*) FROM jobs
 WHERE kind = sqlc.arg(kind) AND dead = false AND payload->>'MemberID' = sqlc.arg(member_id)::text;

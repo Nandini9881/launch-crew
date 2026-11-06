@@ -194,3 +194,19 @@ func TestPickHeadlinesClamps(t *testing.T) {
 		t.Errorf("clamp headlines = %+v", h)
 	}
 }
+
+func TestRequestTimeoutNeverExceedsDefault(t *testing.T) {
+	if d := timeoutFor(context.Background()); d != defaultTimeout {
+		t.Errorf("no deadline: %v, want %v", d, defaultTimeout)
+	}
+	long, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if d := timeoutFor(long); d != defaultTimeout {
+		t.Errorf("10m job context: %v, want the %v default", d, defaultTimeout)
+	}
+	short, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if d := timeoutFor(short); d > 5*time.Second || d < 4*time.Second {
+		t.Errorf("5s context: %v, want about 5s", d)
+	}
+}

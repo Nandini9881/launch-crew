@@ -39,6 +39,8 @@ const (
 	refreshSkew  = 60 * time.Second
 	maxWait      = 15 * time.Minute // never sleep past one budget window
 	cacheTTL     = time.Hour
+	fallbackTTL  = 15 * time.Minute // built-in rules kept while Buffer's configuration query fails
+	limitsTTL    = time.Minute      // dailyPostingLimits kept in memory per connection
 	refreshFloor = 15 * time.Second // RefreshChannels reuses a cache younger than this
 	refreshLimit = 30 * time.Second
 	maxPage      = 100
@@ -97,6 +99,12 @@ type Client struct {
 	mu      sync.Mutex
 	locks   map[uuid.UUID]*sync.Mutex // per-connection refresh locks
 	windows map[uuid.UUID]int         // largest 15-min quota seen
+	limits  map[uuid.UUID]limitsEntry // DailyPostingLimits answers, limitsTTL old at most
+}
+
+type limitsEntry struct {
+	at     time.Time
+	limits map[string]Limit
 }
 
 // Option configures a Client.
@@ -124,6 +132,7 @@ func New(httpClient *http.Client, q *sqlc.Queries, kr *crypto.Keyring, opts ...O
 		apiURL: defaultAPIURL, tokenURL: defaultTokenURL,
 		now:   time.Now,
 		locks: map[uuid.UUID]*sync.Mutex{}, windows: map[uuid.UUID]int{},
+		limits: map[uuid.UUID]limitsEntry{},
 	}
 	for _, o := range opts {
 		o(c)
@@ -371,6 +380,14 @@ func (c *Client) refresh(ctx context.Context, connID uuid.UUID, stale string, fo
 	}
 	tok, err := c.exchange(ctx, rt)
 	if errors.Is(err, errInvalidGrant) {
+		// The refresh lock is per process. Another machine (two overlap
+		// during a deploy) may have spent this refresh token and stored
+		// a good pair meanwhile; then its tokens stand and nothing is wrong.
+		if fresh, ok, ferr := c.foreignRefresh(ctx, connID, conn.AccessTokenEnc); ferr != nil {
+			return "", ferr
+		} else if ok {
+			return fresh, nil
+		}
 		return "", c.markNeedsReconnect(ctx, connID)
 	}
 	if err != nil {
@@ -397,6 +414,24 @@ func (c *Client) refresh(ctx context.Context, connID uuid.UUID, stale string, fo
 		return "", fmt.Errorf("buffer: save refreshed tokens: %w", err)
 	}
 	return tok.AccessToken, nil
+}
+
+// foreignRefresh re-reads the connection and, when its access token is no
+// longer the one this refresh started from, returns the stored token.
+func (c *Client) foreignRefresh(ctx context.Context, connID uuid.UUID, startedWith []byte) (string, bool, error) {
+	conn, err := c.q.GetBufferConnection(ctx, connID)
+	if err != nil {
+		return "", false, fmt.Errorf("buffer: load connection: %w", err)
+	}
+	if conn.Status == statusNeedsReconnect || bytes.Equal(conn.AccessTokenEnc, startedWith) {
+		return "", false, nil
+	}
+	tok, err := c.decrypt(conn.AccessTokenEnc)
+	if err != nil {
+		return "", false, err
+	}
+	log.Printf("buffer: connection %s was refreshed elsewhere; using the stored token", connID)
+	return tok, true, nil
 }
 
 func (c *Client) markNeedsReconnect(ctx context.Context, connID uuid.UUID) error {

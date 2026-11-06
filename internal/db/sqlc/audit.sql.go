@@ -29,6 +29,30 @@ func (q *Queries) CountBufferCallsSince(ctx context.Context, arg CountBufferCall
 	return count, err
 }
 
+const deleteBufferCallsBefore = `-- name: DeleteBufferCallsBefore :execrows
+DELETE FROM buffer_calls WHERE at < $1
+`
+
+func (q *Queries) DeleteBufferCallsBefore(ctx context.Context, at pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBufferCallsBefore, at)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteOpenRateBefore = `-- name: DeleteOpenRateBefore :execrows
+DELETE FROM open_rate WHERE minute < $1
+`
+
+func (q *Queries) DeleteOpenRateBefore(ctx context.Context, minute pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOpenRateBefore, minute)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertBufferCall = `-- name: InsertBufferCall :exec
 INSERT INTO buffer_calls (launch_id, connection_id, op, status, request_id, rate_remaining)
 VALUES ($1, $2, $3, $4, $5, $6)

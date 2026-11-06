@@ -346,3 +346,63 @@ func TestFailedJobIsLoggedAndDeadLetterSaysSo(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+func staleJob(t *testing.T, pool *pgxpool.Pool, kind jobs.Kind) int64 {
+	t.Helper()
+	ctx := context.Background()
+	id, err := jobs.Enqueue(ctx, sqlc.New(pool), kind, nil, time.Time{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE jobs SET locked_at = now() - interval '20 minutes', locked_by = 'crashed' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func waitFor(t *testing.T, what string, d time.Duration, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Reaping stale locks is one UPDATE the ready index cannot serve, so it runs
+// once at start and then on its own ticker, never on every idle poll.
+func TestReapRunsOnTickerNotOnIdlePolls(t *testing.T) {
+	pool := testPool(t)
+	kind := kindFor(t, pool)
+	handlers := map[jobs.Kind]jobs.Handler{kind: func(context.Context, jobs.Job) error { return nil }}
+	locked := func(id int64) bool {
+		var l bool
+		_ = pool.QueryRow(context.Background(), `SELECT locked_at IS NOT NULL FROM jobs WHERE id = $1`, id).Scan(&l)
+		return l
+	}
+	run := func(w *jobs.Worker) (cancel func()) {
+		ctx, stop := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() { defer close(done); _ = w.Run(ctx) }()
+		return func() { stop(); <-done }
+	}
+
+	first := staleJob(t, pool, kind)
+	w := &jobs.Worker{Pool: pool, Handlers: handlers, ID: "w", Concurrency: 2, Poll: 20 * time.Millisecond, ReapEvery: time.Hour}
+	stop := run(w)
+	// The start-up reap frees the first stale job, which then runs and is deleted.
+	waitFor(t, "start-up reap", 3*time.Second, func() bool { return jobCount(t, pool, first) == 0 })
+	second := staleJob(t, pool, kind)
+	time.Sleep(500 * time.Millisecond) // dozens of idle polls
+	if !locked(second) || jobCount(t, pool, second) != 1 {
+		t.Fatal("an idle poll reaped the stale lock")
+	}
+	stop()
+
+	w.ReapEvery = 100 * time.Millisecond
+	stop = run(w)
+	defer stop()
+	waitFor(t, "ticker reap", 3*time.Second, func() bool { return jobCount(t, pool, second) == 0 })
+}

@@ -40,7 +40,7 @@ jobs:
         with:
           go-version-file: go.mod
       # The DB-backed tests share one Postgres and each migrates it, so packages must not run in parallel.
-      - run: go test -p 1 ./...
+      - run: go test -race -p 1 ./...
 
   e2e:
     needs: test

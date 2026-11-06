@@ -17,10 +17,14 @@ import (
 )
 
 const (
-	maxLead         = 30 * 24 * time.Hour
-	rateMargin      = 10
-	defaultOverlap  = 0.35
-	fetchTimeout    = 5 * time.Second
+	maxLead        = 30 * 24 * time.Hour
+	rateMargin     = 10
+	defaultOverlap = 0.35
+	fetchTimeout   = 5 * time.Second
+	// limitsHorizon is how far ahead the daily limit still counts: Buffer's
+	// "today" follows the channel's timezone, so a launch up to 36 h out
+	// can still fall on today's quota somewhere.
+	limitsHorizon   = 36 * time.Hour
 	checkNameImages = "Card images reachable"
 )
 
@@ -175,11 +179,11 @@ func checkURLs(ctx context.Context, deps Deps, assets []Asset) Check {
 	return pass(1, checkNameImages)
 }
 
-// checkLimits applies Buffer's dailyPostingLimits, which describe today, only
-// when the launch falls on the same UTC calendar day as now; a later day passes.
+// checkLimits applies Buffer's dailyPostingLimits, which describe today in
+// each channel's timezone, to a launch within limitsHorizon; a later one passes.
 func checkLimits(ctx context.Context, deps Deps, l Launch) Check {
 	const name = "Daily posting limits"
-	if !sameUTCDay(l.LaunchAt, clock(deps)) {
+	if l.LaunchAt.Sub(clock(deps)) > limitsHorizon {
 		return pass(2, name)
 	}
 	limits, err := deps.Limits(ctx, l.ConnectionID)
@@ -273,10 +277,4 @@ func clock(deps Deps) time.Time {
 		return time.Now()
 	}
 	return deps.Now()
-}
-
-func sameUTCDay(a, b time.Time) bool {
-	ay, am, ad := a.UTC().Date()
-	by, bm, bd := b.UTC().Date()
-	return ay == by && am == bm && ad == bd
 }

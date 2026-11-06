@@ -37,6 +37,10 @@ const (
 	// captainSkipped is a post the captain removed from the launch for one
 	// channel. It is kept, so it is not rebuilt, and it is never sent.
 	captainSkipped = "skipped"
+
+	// lateQueueNote is kept on a captain draft sent after launch_at had
+	// passed: Buffer refuses a dueAt in the past, so it took the next slot.
+	lateQueueNote = "the launch time had passed when this was sent, so it took the next free slot in your queue"
 )
 
 // CommentsPayload is the SendComments payload: one member's PR comment,
@@ -123,7 +127,8 @@ func runLaunch(ctx context.Context, d Deps, id uuid.UUID) error {
 }
 
 // postCaptainDraft creates the captain's post for one channel, scheduled at
-// launch_at. The draft moves draft -> sending -> queued, or to a Buffer draft
+// launch_at, or added to the queue when launch_at has already passed (a
+// retry). The draft moves draft -> sending -> queued, or to a Buffer draft
 // (status draft with a post id) when the queue is full, or to failed when
 // Buffer refuses it. A send whose answer was lost stays sending and is looked
 // up in Buffer before any new create.
@@ -160,6 +165,11 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 		ChannelID: ch.ID, Text: cd.Text, Mode: "customScheduled", DueAt: &at,
 		FirstComment: cd.FirstComment.String,
 	}
+	note := ""
+	if !at.After(d.now()) {
+		in.Mode, in.DueAt = "addToQueue", nil
+		note = lateQueueNote
+	}
 	if t := threadOf(cd.Thread); len(t) > 1 && rules.Threads {
 		in.Text, in.Thread = t[0], t
 	}
@@ -180,7 +190,7 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 	case err == nil && res.SavedAsDraft:
 		return setCaptainDraft(wctx, d, cd.ID, draftDraft, res.PostID, res.Note)
 	case err == nil:
-		return setCaptainDraft(wctx, d, cd.ID, draftQueued, res.PostID, "")
+		return setCaptainDraft(wctx, d, cd.ID, draftQueued, res.PostID, note)
 	case errors.Is(err, buffer.ErrNeedsReconnect):
 		_ = setCaptainDraft(wctx, d, cd.ID, draftDraft, "", "")
 		return err
@@ -330,7 +340,7 @@ func inviteCrew(ctx context.Context, d Deps, s *state) error {
 	if s.l.LaunchAt.Valid {
 		closeAt := s.l.LaunchAt.Time.Add(time.Duration(s.l.WindowMinutes) * time.Minute)
 		for kind, at := range map[jobs.Kind]time.Time{jobs.CloseWindow: closeAt, jobs.PollStatus: closeAt.Add(pollDelay)} {
-			c, err := q.CountJobsOfKind(ctx, sqlc.CountJobsOfKindParams{Kind: string(kind), LaunchID: uuid.NullUUID{UUID: id, Valid: true}})
+			c, err := q.CountLiveJobsOfKindForLaunch(ctx, sqlc.CountLiveJobsOfKindForLaunchParams{Kind: string(kind), LaunchID: uuid.NullUUID{UUID: id, Valid: true}})
 			if err != nil {
 				return err
 			}

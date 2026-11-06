@@ -42,13 +42,20 @@ func NewClaude(apiKey string, opts ...option.RequestOption) *Claude {
 	return &Claude{client: anthropic.NewClient(all...)}
 }
 
-// requestTimeout bounds one request by the context deadline.
+// requestTimeout bounds one request to timeoutFor(ctx).
 func requestTimeout(ctx context.Context) option.RequestOption {
+	return option.WithRequestTimeout(timeoutFor(ctx))
+}
+
+// timeoutFor is defaultTimeout, or less when the context ends sooner. A
+// deadline further out (the 10-minute job context) never widens it, so
+// one slow Anthropic call cannot hold a job for the whole budget.
+func timeoutFor(ctx context.Context) time.Duration {
 	d := defaultTimeout
 	if dl, ok := ctx.Deadline(); ok {
-		d = time.Until(dl)
+		d = min(d, time.Until(dl))
 	}
-	return option.WithRequestTimeout(d)
+	return d
 }
 
 type draftView struct {

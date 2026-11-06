@@ -95,6 +95,9 @@ const (
 	noteWindowOver = "the launch window is over, pick next free slot"
 	noteEmpty      = "the post is empty, add some text"
 	noteRefused    = "Buffer did not take the post, try again"
+	// noteRecordMissing is set when the post exists in Buffer but the
+	// crew_drafts write failed for good; the attempt still records the post.
+	noteRecordMissing = "posted to Buffer, but we could not save the record; the board may show it late"
 )
 
 var randMu sync.Mutex // *rand.Rand is not safe for concurrent use
@@ -551,7 +554,9 @@ func (p *poster) lookup(ctx context.Context, j *job, text string, from time.Time
 }
 
 // succeed records a created post: crew_drafts first, then the attempt,
-// so a tap that sees the attempt done can read the draft row.
+// so a tap that sees the attempt done can read the draft row. Both writes
+// are retried; if the draft write still fails the attempt says so, rather
+// than recording a post the board cannot see.
 func (p *poster) succeed(ctx context.Context, j *job, postID string, asDraft bool, note string, due *time.Time) Outcome {
 	status := statusQueued
 	if asDraft || j.sel.Timing == TimingDraft {
@@ -568,15 +573,18 @@ func (p *poster) succeed(ctx context.Context, j *job, postID string, asDraft boo
 			log.Printf("crew: save posted text for draft %s: %v", j.draft.ID, err)
 		}
 	}
-	if err := p.deps.Q.UpdateCrewDraftPosting(ctx, sqlc.UpdateCrewDraftPostingParams{
-		ID: j.draft.ID, Status: status, BufferPostID: pgtype.Text{String: postID, Valid: true}, DueAt: dueAt,
-	}); err != nil {
-		log.Printf("ERROR crew: save posting for draft %s (post %s): %v", j.draft.ID, postID, err)
-	}
 	j.unclear = false
 	j.out.Status = status
 	j.out.PostID = postID
 	j.out.Note = firstNonEmpty(note, draftNote(status, j.sel.Timing))
+	if err := retryWrite(func() error {
+		return p.deps.Q.UpdateCrewDraftPosting(ctx, sqlc.UpdateCrewDraftPostingParams{
+			ID: j.draft.ID, Status: status, BufferPostID: pgtype.Text{String: postID, Valid: true}, DueAt: dueAt,
+		})
+	}); err != nil {
+		log.Printf("ERROR crew: save posting for draft %s (post %s) failed after %d tries: %v", j.draft.ID, postID, attemptWrites, err)
+		j.out.Note = noteRecordMissing
+	}
 	p.setAttempt(ctx, j, status, postID)
 	return j.out
 }
@@ -590,17 +598,25 @@ func (p *poster) setAttempt(ctx context.Context, j *job, status, postID string) 
 		Unclear:      j.unclear, SentText: j.sentText, SentDueAt: j.sentDue,
 		Note: pgtype.Text{String: j.out.Note, Valid: true},
 	}
+	if err := retryWrite(func() error { return p.deps.Q.UpdatePostAttempt(ctx, arg) }); err != nil {
+		log.Printf("ERROR crew: set attempt %s/%s to %s (post %q) failed after %d tries: %v",
+			p.member.ID, j.sel.ChannelID, status, postID, attemptWrites, err)
+	}
+}
+
+// retryWrite runs write up to attemptWrites times, attemptWriteGap apart,
+// and returns the last error.
+func retryWrite(write func() error) error {
 	var err error
 	for i := range attemptWrites {
 		if i > 0 {
 			time.Sleep(attemptWriteGap)
 		}
-		if err = p.deps.Q.UpdatePostAttempt(ctx, arg); err == nil {
-			return
+		if err = write(); err == nil {
+			return nil
 		}
 	}
-	log.Printf("ERROR crew: set attempt %s/%s to %s (post %q) failed after %d tries: %v",
-		p.member.ID, j.sel.ChannelID, status, postID, attemptWrites, err)
+	return err
 }
 
 func timePtr(t pgtype.Timestamptz) *time.Time {

@@ -1,5 +1,8 @@
 app = "launchcrew"
 primary_region = "iad"
+# SIGTERM to SIGKILL. Covers the 10 s HTTP shutdown and the 15 s worker drain
+# in cmd/launchcrew/main.go; Fly's default is 5 s.
+kill_timeout = 30
 
 [http_service]
   internal_port = 8080

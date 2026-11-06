@@ -582,3 +582,121 @@ func TestAuditRowPerCall(t *testing.T) {
 		t.Fatalf("rows = %q, want %q", got, want)
 	}
 }
+
+func TestConfigurationFallbackIsCached(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	gqlErr := bufferfake.Response{Errors: []map[string]any{{
+		"message": "configuration is not available", "extensions": map[string]any{"code": "INTERNAL_SERVER_ERROR"},
+	}}}
+	e.fake.Script("GetConfiguration", gqlErr, gqlErr)
+	for range 2 {
+		cfg, err := e.c.Configuration(ctx, e.connID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cfg.Fallback || cfg.Services["twitter"].MaxChars != 280 {
+			t.Fatalf("config = %+v, want the built-in fallback", cfg)
+		}
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 1 {
+		t.Fatalf("requests = %d, want 1 (fallback cached)", n)
+	}
+	// The fallback is retried sooner than a real answer would be.
+	e.clock.Advance(16 * time.Minute)
+	if _, err := e.c.Configuration(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 2 {
+		t.Fatalf("requests after 16m = %d, want 2", n)
+	}
+	// A real answer replaces it and is kept for the full hour.
+	e.fake.Handle("GetConfiguration", map[string]any{"configuration": map[string]any{"services": []any{
+		map[string]any{"service": "twitter", "content": []any{map[string]any{
+			"configurationContentTypes": []string{"post"}, "supportedProperties": []string{"thread", "image"},
+			"rules": []any{map[string]any{"__typename": "LengthRule", "property": "text", "maxLength": 4000}},
+		}}},
+	}}})
+	e.clock.Advance(16 * time.Minute)
+	cfg, err := e.c.Configuration(ctx, e.connID)
+	if err != nil || cfg.Fallback || cfg.Services["twitter"].MaxChars != 4000 {
+		t.Fatalf("config = %+v, %v", cfg, err)
+	}
+	e.clock.Advance(30 * time.Minute)
+	if _, err := e.c.Configuration(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 3 {
+		t.Fatalf("requests 30m after a real answer = %d, want 3", n)
+	}
+	e.clock.Advance(31 * time.Minute)
+	if _, err := e.c.Configuration(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 4 {
+		t.Fatalf("requests after the hour = %d, want 4", n)
+	}
+}
+
+func TestDailyPostingLimitsCachedForAMinute(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	e.fake.Handle("GetChannels", channelsData)
+	e.fake.Handle("GetDailyPostingLimits", map[string]any{"dailyPostingLimits": []any{
+		map[string]any{"channelId": "ch1", "isAtLimit": true, "limit": 10, "scheduled": 7, "sent": 3},
+	}})
+	for range 3 {
+		limits, err := e.c.DailyPostingLimits(ctx, e.connID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l, ok := limits["ch1"]
+		if !ok || !l.IsAtLimit || l.Limit == nil || *l.Limit != 10 || l.Scheduled != 7 || l.Sent != 3 {
+			t.Fatalf("limits = %+v", limits)
+		}
+	}
+	if n := e.fake.Count("GetDailyPostingLimits"); n != 1 {
+		t.Fatalf("requests = %d, want 1 (cached)", n)
+	}
+	e.clock.Advance(61 * time.Second)
+	if _, err := e.c.DailyPostingLimits(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetDailyPostingLimits"); n != 2 {
+		t.Fatalf("requests after 61s = %d, want 2", n)
+	}
+}
+
+// Two machines overlap during a deploy: the other one refreshes first and
+// stores new tokens, so this one's refresh token is spent and Buffer answers
+// invalid_grant. The connection must not be marked needs_reconnect, since
+// the stored tokens are good; the call goes on with them.
+func TestInvalidGrantAfterForeignRefreshKeepsConnection(t *testing.T) {
+	e := setup(t, -time.Minute)
+	e.fake.SetRefresh(bufferfake.RefreshInvalidGrant)
+	e.fake.OnToken(func() {
+		access, keyID, _ := e.kr.Encrypt([]byte("access-other"))
+		refresh, _, _ := e.kr.Encrypt([]byte("refresh-other"))
+		_ = e.q.UpdateConnectionTokens(context.Background(), sqlc.UpdateConnectionTokensParams{
+			ID: e.connID, AccessTokenEnc: access, RefreshTokenEnc: refresh, KeyID: keyID,
+			ExpiresAt: pgtype.Timestamptz{Time: e.clock.Now().Add(time.Hour), Valid: true},
+		})
+	})
+	if err := e.c.Do(context.Background(), e.connID, ping, nil, nil); err != nil {
+		t.Fatalf("err = %v, want the call to go on with the other machine's token", err)
+	}
+	conn := e.conn(t)
+	if conn.Status != "ok" {
+		t.Fatalf("status = %q, want ok", conn.Status)
+	}
+	if got := e.decrypt(t, conn.AccessTokenEnc); got != "access-other" {
+		t.Fatalf("stored access = %q, want the other machine's", got)
+	}
+	reqs := e.fake.Requests()
+	if len(reqs) != 1 || reqs[0].Auth != "Bearer access-other" {
+		t.Fatalf("requests = %+v, want one with the other machine's token", reqs)
+	}
+	if n := len(e.fake.RefreshForms()); n != 1 {
+		t.Fatalf("refresh calls = %d, want 1", n)
+	}
+}

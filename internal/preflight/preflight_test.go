@@ -159,28 +159,33 @@ func TestFixNamesAnAction(t *testing.T) {
 	}
 }
 
-func TestLimitAppliesOnLaunchDayOnly(t *testing.T) {
+// Buffer's "today" follows the channel's timezone, not UTC, so the limit is
+// checked for any launch within 36 hours and skipped for later ones.
+func TestLimitAppliesWithinThirtySixHours(t *testing.T) {
 	ctx := context.Background()
 	atLimit := func(f *fixture) {
 		f.deps.Limits = func(ctx context.Context, id uuid.UUID) (map[string]buffer.Limit, error) {
 			return map[string]buffer.Limit{"ch1": {IsAtLimit: true}}, nil
 		}
 	}
+	for _, tc := range []struct {
+		lead time.Duration
+		fail bool
+	}{
+		{2 * time.Hour, true},
+		{30 * time.Hour, true},  // tomorrow in UTC, still today somewhere west
+		{48 * time.Hour, false}, // a later day everywhere
+	} {
+		f := good()
+		atLimit(&f)
+		f.l.LaunchAt = now.Add(tc.lead)
+		cs, _ := Run(ctx, f.deps, f.l)
+		if cs[1].OK == tc.fail {
+			t.Fatalf("launch in %v at limit: %+v", tc.lead, cs[1])
+		}
+	}
 	f := good()
-	atLimit(&f)
-	f.l.LaunchAt = now.Add(48 * time.Hour)
 	cs, _ := Run(ctx, f.deps, f.l)
-	if !cs[1].OK || cs[1].Fix != "" {
-		t.Fatalf("next day should pass: %+v", cs[1])
-	}
-	f = good()
-	atLimit(&f)
-	cs, _ = Run(ctx, f.deps, f.l)
-	if cs[1].OK {
-		t.Fatalf("same day at limit should fail")
-	}
-	f = good()
-	cs, _ = Run(ctx, f.deps, f.l)
 	if !cs[1].OK {
 		t.Fatalf("same day under limit should pass")
 	}

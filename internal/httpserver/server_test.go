@@ -1,12 +1,15 @@
 package httpserver_test
 
 import (
+	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shubham-tomar/launchcrew/internal/auth"
 	"github.com/shubham-tomar/launchcrew/internal/crypto"
@@ -125,5 +128,33 @@ func TestHardeningHeadersOnEveryResponse(t *testing.T) {
 		if p == "/healthz" && rr.Header().Get("Content-Security-Policy") != "" {
 			t.Errorf("%s: a CSP leaked onto a non-HTML response", p)
 		}
+	}
+}
+
+func TestHealthzReportsReadiness(t *testing.T) {
+	get := func(h http.Handler) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", "/healthz", nil))
+		return rr
+	}
+	ok := httpserver.New(httpserver.Deps{Ready: func(context.Context) error { return nil }})
+	if rr := get(ok); rr.Code != 200 || rr.Body.String() != "ok" {
+		t.Fatalf("ready: got %d %q", rr.Code, rr.Body)
+	}
+	down := httpserver.New(httpserver.Deps{Ready: func(context.Context) error { return errors.New("no db") }})
+	if rr := get(down); rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "unavailable") {
+		t.Fatalf("down: got %d %q", rr.Code, rr.Body)
+	}
+	// The probe is bounded: a hung check answers within about a second.
+	hung := httpserver.New(httpserver.Deps{Ready: func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}})
+	start := time.Now()
+	if rr := get(hung); rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("hung: got %d %q", rr.Code, rr.Body)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("hung probe took %v", d)
 	}
 }

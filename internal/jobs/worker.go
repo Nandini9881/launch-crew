@@ -20,6 +20,7 @@ const (
 	maxErrorLen  = 2000
 	backoffBase  = 10 * time.Second
 	defaultPoll  = time.Second
+	defaultReap  = time.Minute
 	defaultConcs = 2
 	settleTries  = 3
 	settleGap    = 100 * time.Millisecond
@@ -34,9 +35,13 @@ type Worker struct {
 	ID          string
 	Concurrency int
 	Poll        time.Duration
+	// ReapEvery is how often stale locks are reaped; a minute when zero.
+	ReapEvery time.Duration
 }
 
 // Run processes jobs until ctx is cancelled, then waits for in-flight jobs.
+// One goroutine reaps stale locks at start and every ReapEvery; the polling
+// goroutines never do, since that UPDATE scans past the ready index.
 func (w *Worker) Run(ctx context.Context) error {
 	n := w.Concurrency
 	if n <= 0 {
@@ -46,8 +51,17 @@ func (w *Worker) Run(ctx context.Context) error {
 	if poll <= 0 {
 		poll = defaultPoll
 	}
+	reapEvery := w.ReapEvery
+	if reapEvery <= 0 {
+		reapEvery = defaultReap
+	}
 	q := sqlc.New(w.Pool)
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		reapLoop(ctx, q, reapEvery)
+	}()
 	for i := 1; i <= n; i++ {
 		lockedBy := fmt.Sprintf("%s-%d", w.ID, i)
 		wg.Add(1)
@@ -61,11 +75,6 @@ func (w *Worker) Run(ctx context.Context) error {
 				if handled && err == nil {
 					continue
 				}
-				if !handled && err == nil {
-					if _, rerr := ReapStale(ctx, q, staleAfter); rerr != nil && ctx.Err() == nil {
-						log.Printf("jobs: reap: %v", rerr)
-					}
-				}
 				select {
 				case <-ctx.Done():
 				case <-time.After(poll):
@@ -75,6 +84,22 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 	wg.Wait()
 	return nil
+}
+
+// reapLoop unlocks stale jobs once, then every interval, until ctx ends.
+func reapLoop(ctx context.Context, q *sqlc.Queries, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		if _, err := ReapStale(ctx, q, staleAfter); err != nil && ctx.Err() == nil {
+			log.Printf("jobs: reap: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 // RunOnce claims and runs at most one job with the given handlers.

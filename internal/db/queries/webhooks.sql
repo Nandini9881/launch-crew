@@ -9,3 +9,6 @@ SELECT * FROM webhook_deliveries WHERE delivery_id = $1;
 
 -- name: DeleteWebhookDelivery :exec
 DELETE FROM webhook_deliveries WHERE delivery_id = $1;
+
+-- name: DeleteWebhookDeliveriesBefore :execrows
+DELETE FROM webhook_deliveries WHERE received_at < $1;
