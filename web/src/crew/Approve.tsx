@@ -23,6 +23,8 @@ const TIMING_HINT: Record<Timing, string> = {
   draft: 'Saved in Buffer as a draft. Nothing is scheduled.',
 }
 const BUSY = 'Buffer is not answering, try again'
+// "your edits are kept" is reassurance for a moment, not a fixture; it also goes on the next edit.
+const KEPT_FOR = 4000
 
 const passDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
@@ -190,6 +192,12 @@ export default function Approve() {
   useEffect(() => {
     if (Object.keys(outcomes).length) results.current?.focus()
   }, [outcomes])
+
+  useEffect(() => {
+    if (!kept) return
+    const t = window.setTimeout(() => setKept(false), KEPT_FOR)
+    return () => window.clearTimeout(t)
+  }, [kept])
 
   if (inviteError) return <Dead code={inviteError.code} />
   if (invite?.foreign) return <Foreign releaseUrl={invite.launch.releaseUrl} />
@@ -369,7 +377,10 @@ export default function Approve() {
                   countFirst={d.thread[0]}
                   readOnly={locked.has(d.id)}
                   lockedNote="Already in your Buffer, edit it there"
-                  onText={(t) => (texts.current[d.id] = t)}
+                  onText={(t) => {
+                    texts.current[d.id] = t
+                    setKept(false)
+                  }}
                   onSave={(t) => save(d.id, t)}
                 />
               </div>

@@ -361,6 +361,9 @@ test('saving the voice updates the line, restarts the poll and keeps edits', asy
   m.polled = { voicedReady: true, drafts: [dr('d1', 'c1', 'rewritten', { fromModel: true })] }
   await advance(1600)
   expect(area).toHaveValue('voiced one!') // edited: never replaced
+  // the note is a moment's reassurance, not a permanent fixture
+  await advance(5000)
+  expect(screen.queryByText('your edits are kept; new drafts will use this voice')).toBeNull()
 })
 
 test('unedited draft is replaced by the rewrite after a voice save', async () => {
