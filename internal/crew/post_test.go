@@ -826,3 +826,37 @@ func TestPostAttachesMemberCard(t *testing.T) {
 		t.Fatalf("empty assetUrl still sent assets: %v", byText["shipped it too"]["assets"])
 	}
 }
+
+// A created post must never be known to the attempt but not the draft: the
+// board and the status poll read crew_drafts. When the draft write keeps
+// failing, the attempt still closes and its note says the record is missing.
+func TestDraftWriteFailureIsRecordedOnTheAttempt(t *testing.T) {
+	e := setup(t, channel{"x1", "twitter", "@ana"})
+	ctx := context.Background()
+	// Make the posting write to crew_drafts fail for this post id only.
+	if _, err := e.pool.Exec(ctx, `ALTER TABLE crew_drafts ADD CONSTRAINT lc_test_posting_write CHECK (buffer_post_id IS DISTINCT FROM 'p-unwritable')`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `ALTER TABLE crew_drafts DROP CONSTRAINT IF EXISTS lc_test_posting_write`)
+	})
+	e.fake.Script("CreatePost", success("p-unwritable"))
+	start := time.Now()
+	out, err := crew.PostAll(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x1", Text: "draft for x1", Timing: crew.TimingQueue}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d < 200*time.Millisecond {
+		t.Fatalf("gave up after %v; want three tries 100 ms apart", d)
+	}
+	if out[0].Status != "queued" || out[0].PostID != "p-unwritable" || !strings.Contains(out[0].Note, "record") {
+		t.Fatalf("outcome = %+v, want queued with a note about the missing record", out[0])
+	}
+	a := e.attempt(t, "x1")
+	if a.Status != "queued" || a.BufferPostID.String != "p-unwritable" || !strings.Contains(a.Note.String, "record") {
+		t.Fatalf("attempt = %+v, want queued with the note", a)
+	}
+	if d := e.draft(t, "x1"); d.BufferPostID.Valid {
+		t.Fatalf("draft = %+v; the constraint should have refused the write", d)
+	}
+}
