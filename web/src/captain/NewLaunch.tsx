@@ -6,6 +6,7 @@ import Button from '../components/Button'
 import Pass from '../components/Pass'
 import Frame from './Frame'
 import { asError, fromLocalInput } from './format'
+import { MAX_WINDOW, MIN_WINDOW, launchAtProblem, windowProblem } from './timing-rules'
 import './newlaunch.css'
 
 const DAY = (v: string) => (v ? new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : 'Date TBD')
@@ -69,6 +70,9 @@ export default function NewLaunch() {
   const [summary, setSummary] = useState('')
   const [at, setAt] = useState('')
   const [win, setWin] = useState('90')
+  const [titleError, setTitleError] = useState<string>()
+  const [atError, setAtError] = useState<string>()
+  const [winError, setWinError] = useState<string>()
   const [roles, setRoles] = useState<Role[]>(MEETUP_ROLES)
   const [hero, setHero] = useState('')
   const [heroError, setHeroError] = useState<string>()
@@ -93,6 +97,16 @@ export default function NewLaunch() {
     setError(undefined)
     setHeroError(undefined)
     setQrError(undefined)
+    // The form is noValidate so every message sits by its field with aria-invalid, instead of
+    // the browser's bubble. Timing follows the same rules as the launch page's Timing card;
+    // an empty window takes the server default.
+    const badTitle = title.trim() ? undefined : 'Give the launch a title.'
+    const badAt = launchAtProblem(at)
+    const badWin = win.trim() === '' ? undefined : windowProblem(win)
+    setTitleError(badTitle)
+    setAtError(badAt)
+    setWinError(badWin)
+    if (badTitle || badAt || badWin) return
     const url = hero.trim()
     if (url && !/^https:\/\/\S+$/i.test(url)) {
       setHeroError('Use an https:// image URL.')
@@ -106,8 +120,7 @@ export default function NewLaunch() {
     const body: Body = { title: title.trim() }
     if (summary.trim()) body.summary = summary.trim()
     if (at) body.launchAt = fromLocalInput(at)
-    const n = Number(win)
-    if (Number.isInteger(n) && n > 0) body.windowMinutes = n
+    if (win.trim() !== '') body.windowMinutes = Number(win)
     const named = roles
       .filter((r) => r.name.trim())
       .slice(0, MAX_ROLES)
@@ -166,7 +179,7 @@ export default function NewLaunch() {
         <GithubExplainer />
       ) : (
         <div className="nl-grid">
-          <form className="nl-form" onSubmit={submit}>
+          <form className="nl-form" onSubmit={submit} noValidate>
             <div className="nl-intro">
               <h2>Set the moment</h2>
               <p>Launch Crew writes one draft per person and holds every one of them until that person approves it.</p>
@@ -179,10 +192,12 @@ export default function NewLaunch() {
                 type="text"
                 required
                 maxLength={120}
-                aria-describedby="nl-title-hint"
+                aria-invalid={titleError ? true : undefined}
+                aria-describedby={titleError ? 'nl-title-error nl-title-hint' : 'nl-title-hint'}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
+              {titleError && <span id="nl-title-error" role="alert" className="nl-error">{titleError}</span>}
               <span id="nl-title-hint" className="nl-hint">The crew sees this on their invite.</span>
             </div>
             <label className="nl-field">
@@ -192,7 +207,16 @@ export default function NewLaunch() {
             <div className="nl-row">
               <div className="nl-field nl-grow">
                 <label htmlFor="nl-at">Launch time</label>
-                <input id="nl-at" className="field" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
+                <input
+                  id="nl-at"
+                  className="field"
+                  type="datetime-local"
+                  value={at}
+                  aria-invalid={atError ? true : undefined}
+                  aria-describedby={atError ? 'nl-at-error' : undefined}
+                  onChange={(e) => setAt(e.target.value)}
+                />
+                {atError && <span id="nl-at-error" role="alert" className="nl-error">{atError}</span>}
               </div>
               <div className="nl-field nl-narrow">
                 <label htmlFor="nl-window">Window (minutes)</label>
@@ -200,11 +224,14 @@ export default function NewLaunch() {
                   id="nl-window"
                   className="field"
                   type="number"
-                  min={1}
-                  aria-describedby="nl-window-hint"
+                  min={MIN_WINDOW}
+                  max={MAX_WINDOW}
+                  aria-invalid={winError ? true : undefined}
+                  aria-describedby={winError ? 'nl-window-error nl-window-hint' : 'nl-window-hint'}
                   value={win}
                   onChange={(e) => setWin(e.target.value)}
                 />
+                {winError && <span id="nl-window-error" role="alert" className="nl-error">{winError}</span>}
                 <span id="nl-window-hint" className="nl-hint">Spread, not a pile-on.</span>
               </div>
             </div>

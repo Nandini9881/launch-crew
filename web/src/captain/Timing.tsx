@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import Button from '../components/Button'
 import type { Detail, Patch } from '../api'
 import { clock, fromLocalInput, moment, plusMinutes, toLocalInput, zone } from './format'
+import { MAX_WINDOW, MIN_WINDOW, launchAtProblem, windowProblem } from './timing-rules'
 
 type Props = { detail: Detail; onSave: (p: Patch) => Promise<unknown> | void }
 
-const MIN_WINDOW = 5
-const MAX_WINDOW = 720
 const MAX_BARS = 24
 const SAVE_AFTER = 700
+// A half-typed value is not a problem yet: wait this long for the typing to pause.
+const ANNOUNCE_AFTER = 600
 
-type Status = { kind: 'idle' | 'saving' | 'saved' | 'problem'; text: string }
+type Field = 'at' | 'win'
+type Status = { kind: 'idle' | 'saving' | 'saved' | 'problem'; text: string; field?: Field }
 
 // Launch moment and window. The summary shows what is saved; "Change" opens the
 // two fields, and whatever the captain picks saves itself once it is valid.
@@ -23,24 +25,36 @@ export default function Timing({ detail, onSave }: Props) {
   const save = useRef(onSave)
   save.current = onSave
 
+  const atChanged = at !== '' && at !== toLocalInput(detail.launchAt)
+  const winChanged = win !== String(detail.windowMinutes)
+
+  // The first thing wrong with what is typed, and which field it belongs to.
+  const problem = (): Status | undefined => {
+    const badAt = atChanged ? launchAtProblem(at) : undefined
+    if (badAt) return { kind: 'problem', text: badAt, field: 'at' }
+    const badWin = winChanged ? windowProblem(win) : undefined
+    if (badWin) return { kind: 'problem', text: badWin, field: 'win' }
+    return undefined
+  }
+
+  // Leaving a field announces its problem at once instead of waiting for the pause.
+  const announce = () => {
+    const p = problem()
+    if (p) setStatus(p)
+  }
+
   useEffect(() => {
     if (!editable) return
+    const bad = problem()
+    if (bad) {
+      // Clear whatever was said, then speak only once the typing has paused.
+      setStatus({ kind: 'idle', text: '' })
+      const t = window.setTimeout(() => setStatus(bad), ANNOUNCE_AFTER)
+      return () => window.clearTimeout(t)
+    }
     const patch: Patch = {}
-    if (at && at !== toLocalInput(detail.launchAt)) {
-      if (new Date(at).getTime() <= Date.now()) {
-        setStatus({ kind: 'problem', text: 'Pick a time in the future.' })
-        return
-      }
-      patch.launchAt = fromLocalInput(at)
-    }
-    const n = Number(win)
-    if (win !== String(detail.windowMinutes)) {
-      if (!Number.isInteger(n) || n < MIN_WINDOW || n > MAX_WINDOW) {
-        setStatus({ kind: 'problem', text: `The window is ${MIN_WINDOW} to ${MAX_WINDOW} minutes.` })
-        return
-      }
-      patch.windowMinutes = n
-    }
+    if (atChanged) patch.launchAt = fromLocalInput(at)
+    if (winChanged) patch.windowMinutes = Number(win)
     if (Object.keys(patch).length === 0) return
     setStatus({ kind: 'saving', text: 'Saving...' })
     const t = window.setTimeout(async () => {
@@ -52,6 +66,8 @@ export default function Timing({ detail, onSave }: Props) {
       }
     }, SAVE_AFTER)
     return () => window.clearTimeout(t)
+    // problem() derives from at and win, which are listed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [at, win, editable, detail.launchAt, detail.windowMinutes])
 
   const total = detail.counts.total
@@ -106,7 +122,15 @@ export default function Timing({ detail, onSave }: Props) {
             <div className="cap-form">
               <label className="cap-field">
                 Launch moment
-                <input className="field" type="datetime-local" value={at} onChange={(e) => setAt(e.target.value)} />
+                <input
+                  className="field"
+                  type="datetime-local"
+                  value={at}
+                  aria-invalid={status.field === 'at' ? true : undefined}
+                  aria-describedby={status.field === 'at' ? 'cap-timing-status' : undefined}
+                  onChange={(e) => setAt(e.target.value)}
+                  onBlur={announce}
+                />
               </label>
               <label className="cap-field">
                 Window (minutes)
@@ -116,12 +140,15 @@ export default function Timing({ detail, onSave }: Props) {
                   min={MIN_WINDOW}
                   max={MAX_WINDOW}
                   value={win}
+                  aria-invalid={status.field === 'win' ? true : undefined}
+                  aria-describedby={status.field === 'win' ? 'cap-timing-status' : undefined}
                   onChange={(e) => setWin(e.target.value)}
+                  onBlur={announce}
                 />
               </label>
             </div>
           )}
-          <p className={status.kind === 'problem' ? 'cap-status cap-err' : 'cap-status cap-muted'} role="status">
+          <p id="cap-timing-status" className={status.kind === 'problem' ? 'cap-status cap-err' : 'cap-status cap-muted'} role="status">
             {status.text}
           </p>
         </>
