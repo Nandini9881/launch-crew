@@ -97,6 +97,23 @@ func (q *Queries) CountLiveJobsOfKind(ctx context.Context, kind string) (int64, 
 	return count, err
 }
 
+const countLiveJobsOfKindForLaunch = `-- name: CountLiveJobsOfKindForLaunch :one
+SELECT count(*) FROM jobs WHERE kind = $1 AND launch_id = $2 AND dead = false
+`
+
+type CountLiveJobsOfKindForLaunchParams struct {
+	Kind     string        `json:"kind"`
+	LaunchID uuid.NullUUID `json:"launch_id"`
+}
+
+// A dead-lettered row is not a scheduled job: a retried LaunchJob enqueues again.
+func (q *Queries) CountLiveJobsOfKindForLaunch(ctx context.Context, arg CountLiveJobsOfKindForLaunchParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countLiveJobsOfKindForLaunch, arg.Kind, arg.LaunchID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countLiveMemberJobs = `-- name: CountLiveMemberJobs :one
 SELECT count(*) FROM jobs
 WHERE kind = $1 AND dead = false AND payload->>'MemberID' = $2::text

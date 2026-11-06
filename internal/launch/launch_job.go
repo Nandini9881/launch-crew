@@ -330,7 +330,7 @@ func inviteCrew(ctx context.Context, d Deps, s *state) error {
 	if s.l.LaunchAt.Valid {
 		closeAt := s.l.LaunchAt.Time.Add(time.Duration(s.l.WindowMinutes) * time.Minute)
 		for kind, at := range map[jobs.Kind]time.Time{jobs.CloseWindow: closeAt, jobs.PollStatus: closeAt.Add(pollDelay)} {
-			c, err := q.CountJobsOfKind(ctx, sqlc.CountJobsOfKindParams{Kind: string(kind), LaunchID: uuid.NullUUID{UUID: id, Valid: true}})
+			c, err := q.CountLiveJobsOfKindForLaunch(ctx, sqlc.CountLiveJobsOfKindForLaunchParams{Kind: string(kind), LaunchID: uuid.NullUUID{UUID: id, Valid: true}})
 			if err != nil {
 				return err
 			}

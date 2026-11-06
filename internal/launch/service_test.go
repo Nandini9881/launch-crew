@@ -1045,3 +1045,36 @@ func TestTransientCaptainErrorStillRetries(t *testing.T) {
 		t.Fatalf("alice %s, want still ticked until the retry", a.State)
 	}
 }
+
+// Once CloseWindow or PollStatus dead-letters, a retried LaunchJob must
+// enqueue it again; a dead row is not a scheduled job.
+func TestRetriedLaunchJobReplacesDeadWindowJobs(t *testing.T) {
+	e := setup(t)
+	if err := launch.Launch(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.drain(t); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(e.ctx, `UPDATE jobs SET dead = true, attempts = 5 WHERE launch_id = $1 AND kind = $2`, e.launch.ID, string(jobs.CloseWindow)); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(launch.LaunchPayload{LaunchID: e.launch.ID})
+	if err := launch.LaunchJobHandler(e.deps)(e.ctx, jobs.Job{Kind: jobs.LaunchJob, Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	live := func(kind jobs.Kind) int {
+		var n int
+		if err := e.pool.QueryRow(e.ctx, `SELECT count(*) FROM jobs WHERE launch_id = $1 AND kind = $2 AND dead = false`, e.launch.ID, string(kind)).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := live(jobs.CloseWindow); n != 1 {
+		t.Fatalf("%d live close jobs after the retry, want 1", n)
+	}
+	if n := live(jobs.PollStatus); n != 1 {
+		t.Fatalf("%d live poll jobs after the retry, want 1 (not duplicated)", n)
+	}
+}
+
