@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -707,5 +708,50 @@ func TestInstallSucceedsWhenGitHubUserUnavailable(t *testing.T) {
 	}
 	if _, err := e.q.GetGitHubIdentityByUser(e.ctx, captain); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("err = %v, want no rows", err)
+	}
+}
+
+// With no HTTPClient injected the exchange still has a deadline, so a GitHub
+// that never answers cannot hold the request open.
+func TestExchangeWithoutInjectedClientTimesOut(t *testing.T) {
+	e := setup(t)
+	restore := identity.SetExchangeTimeout(100 * time.Millisecond)
+	t.Cleanup(restore)
+	done := make(chan struct{})
+	stuck := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-done:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(done); stuck.Close() })
+	if e.ve.HTTPClient != nil || e.in.HTTPClient != nil {
+		t.Fatal("this test needs the default client")
+	}
+
+	// Verify.
+	m, tok := e.crew(t, newGHID())
+	e.ve.OAuth.Endpoint.TokenURL = stuck.URL + "/token"
+	cookie, state := e.startVerify(t, m, tok, nil)
+	begin := time.Now()
+	rr := do(e.ve.Callback, "/github/verify/callback?code=good&state="+state, cookie)
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("verify callback: %d, want 502", rr.Code)
+	}
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("verify exchange took %v, the timeout did not apply", took)
+	}
+
+	// Install.
+	e.in.OAuth.Endpoint.TokenURL = stuck.URL + "/token"
+	user := e.newUser(t)
+	cookie, state = e.startInstall(t, user)
+	begin = time.Now()
+	rr = do(e.in.Callback, "/github/install/callback?installation_id=1&code=good&state="+state, cookie)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("install callback: %d, want 403", rr.Code)
+	}
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("install exchange took %v, the timeout did not apply", took)
 	}
 }

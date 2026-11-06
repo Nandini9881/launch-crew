@@ -24,6 +24,13 @@ import (
 
 const defaultAPIURL = "https://api.github.com"
 
+// exchangeTimeout bounds the OAuth code exchange and the /user fetch when no
+// HTTPClient is injected, so a stalled GitHub cannot hold the handler open.
+var exchangeTimeout = 15 * time.Second
+
+// defaultClient is the client used when none is injected.
+func defaultClient() *http.Client { return &http.Client{Timeout: exchangeTimeout} }
+
 // inviteToken is the shape of an invite token as it appears in /s/<token>.
 var inviteToken = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
@@ -32,7 +39,8 @@ type Verify struct {
 	OAuth    oauth2.Config
 	Q        *sqlc.Queries
 	Sessions *session.Store
-	// HTTPClient is used for the token exchange and /user; defaults to http.DefaultClient.
+	// HTTPClient is used for the token exchange and /user; defaults to a
+	// client with a 15 s timeout.
 	HTTPClient *http.Client
 	// APIURL is the GitHub API root; defaults to https://api.github.com.
 	APIURL string
@@ -110,9 +118,7 @@ func (v *Verify) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if v.HTTPClient != nil {
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, v.HTTPClient)
-	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, v.client())
 	tok, err := v.OAuth.Exchange(ctx, code)
 	if err != nil {
 		log.Printf("github verify: exchange: %v", err)
@@ -205,6 +211,13 @@ func (v *Verify) adoptable(ctx context.Context, user uuid.UUID) (bool, error) {
 	return err == nil && n == 0, err
 }
 
+func (v *Verify) client() *http.Client {
+	if v.HTTPClient != nil {
+		return v.HTTPClient
+	}
+	return defaultClient()
+}
+
 func (v *Verify) fetchUser(ctx context.Context, token string) (int64, string, error) {
 	api := v.APIURL
 	if api == "" {
@@ -216,11 +229,7 @@ func (v *Verify) fetchUser(ctx context.Context, token string) (int64, string, er
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/vnd.github+json")
-	hc := v.HTTPClient
-	if hc == nil {
-		hc = http.DefaultClient
-	}
-	resp, err := hc.Do(req)
+	resp, err := v.client().Do(req)
 	if err != nil {
 		return 0, "", err
 	}
