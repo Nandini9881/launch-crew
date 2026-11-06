@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { ApiError, deleteMe, getMe, optOutMe, optOutWithToken, type Me } from '../api'
+import { ApiError, deleteMe, getMe, optInMe, optOutMe, optOutWithToken, type Me } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import SchemeSwitch from '../components/SchemeSwitch'
@@ -10,6 +10,8 @@ import NavPill from '../components/NavPill'
 import './settings.css'
 
 type Phase = 'idle' | 'confirm' | 'busy'
+// How far an opt-out made on this page reached: every launch, or the token's launch only.
+type Scope = 'all' | 'launch'
 
 const isEmpty = (m: Me) => m.githubLogins.length === 0 && !m.bufferConnected && m.launches === 0 && m.crewRows === 0
 
@@ -29,11 +31,14 @@ export default function Settings() {
   const token = useSearchParams()[0].get('token') ?? ''
   const [me, setMe] = useState<Me>()
   const [loadFailed, setLoadFailed] = useState(false)
-  const [optedOut, setOptedOut] = useState(false)
+  const [optedOut, setOptedOut] = useState<Scope>()
+  const [undone, setUndone] = useState(false)
   const [deleted, setDeleted] = useState(false)
+  const [optPhase, setOptPhase] = useState<Phase>('idle')
   const [phase, setPhase] = useState<Phase>('idle')
   const [optFailed, setOptFailed] = useState(false)
   const [noGitHub, setNoGitHub] = useState(false)
+  const [undoFailed, setUndoFailed] = useState(false)
   const [delFailed, setDelFailed] = useState(false)
 
   useEffect(() => {
@@ -49,16 +54,33 @@ export default function Settings() {
 
   const signedIn = me?.signedIn ?? false
   const viaToken = me !== undefined && !signedIn && token !== ''
+  const inviteLink = `/s/${encodeURIComponent(token)}`
 
   async function optOut() {
+    setOptPhase('busy')
     setOptFailed(false)
+    setUndone(false)
     try {
-      // A comment link always wins: the token names exactly whom to opt out.
-      await (token ? optOutWithToken(token) : optOutMe())
-      setOptedOut(true)
+      // A comment link always wins: the token names exactly whom to opt out, and
+      // the server decides whether it reaches one launch or all of them.
+      const r = await (token ? optOutWithToken(token) : optOutMe())
+      setOptedOut(r.scope)
     } catch (e) {
       setOptFailed(true)
       setNoGitHub(e instanceof ApiError && e.code === 'no_github')
+    }
+    setOptPhase('idle')
+  }
+
+  async function undo() {
+    setUndoFailed(false)
+    try {
+      await optInMe()
+      setOptedOut(undefined)
+      setUndone(true)
+      if (me) setMe({ ...me, optedOut: false })
+    } catch {
+      setUndoFailed(true)
     }
   }
 
@@ -82,7 +104,8 @@ export default function Settings() {
   } else if (deleted) {
     body = <Alert tone="success">Deleted. Your tokens and drafts are gone.</Alert>
   } else {
-    const done = optedOut || (signedIn && me.optedOut)
+    // What the opt-out covers once it is done: the server's answer, or the stored one.
+    const done: Scope | undefined = optedOut ?? (signedIn && me.optedOut ? 'all' : undefined)
     body = (
       <>
         {signedIn && (isEmpty(me) ? <p>Nothing stored about you yet.</p> : <Stored me={me} />)}
@@ -95,12 +118,37 @@ export default function Settings() {
         )}
         {(signedIn || viaToken) && (
           <section className="settings-actions" aria-label="Your choices">
-            {done ? (
-              <Alert tone="success">Opted out. We will never comment on your PRs again.</Alert>
-            ) : (
-              <Button variant="secondary" onClick={optOut}>
-                Opt out of all comments
+            {done === 'all' && (
+              <>
+                <Alert tone="success">Opted out. We will never comment on your PRs again.</Alert>
+                <Button variant="secondary" onClick={undo}>
+                  Undo opt-out
+                </Button>
+              </>
+            )}
+            {done === 'launch' && (
+              <Alert tone="success">
+                Opted out. We will not comment on your PRs for this launch. To stop comments everywhere, verify it's
+                you with GitHub from <a href={inviteLink}>your invite link</a>, then opt out here while signed in.
+              </Alert>
+            )}
+            {undone && <Alert tone="success">Opt-out undone. Future launches can invite you again.</Alert>}
+            {done === undefined && optPhase === 'idle' && (
+              <Button variant="secondary" onClick={() => setOptPhase('confirm')}>
+                {token ? 'Opt out of comments for this launch' : 'Opt out of all comments'}
               </Button>
+            )}
+            {done === undefined && optPhase !== 'idle' && (
+              <>
+                <p className="settings-note">
+                  {token
+                    ? 'This stops comments for this launch only. To stop them everywhere, verify it\'s you with GitHub from your invite link, then opt out here while signed in.'
+                    : 'We will stop commenting on your PRs in every future launch. You can undo this here while signed in.'}
+                </p>
+                <Button variant="primary" busy={optPhase === 'busy'} disabled={optPhase === 'busy'} onClick={optOut}>
+                  Yes, opt out
+                </Button>
+              </>
             )}
             {optFailed && (
               <Alert tone="error">
@@ -109,6 +157,7 @@ export default function Settings() {
                   : 'We could not opt you out. Try again in a moment.'}
               </Alert>
             )}
+            {undoFailed && <Alert tone="error">We could not undo the opt-out. Try again in a moment.</Alert>}
             {signedIn && phase === 'idle' && (
               <Button variant="secondary" onClick={() => setPhase('confirm')}>
                 Delete everything

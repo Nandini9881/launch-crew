@@ -78,3 +78,8 @@ UPDATE launches SET status = 'deleted' WHERE owner_user_id = $1;
 
 -- name: DeleteUserIdentities :exec
 DELETE FROM github_identities WHERE user_id = $1;
+
+-- name: DeleteUserOptOuts :exec
+DELETE FROM opt_outs o
+WHERE o.github_user_id IN (SELECT gi.github_user_id FROM github_identities gi WHERE gi.user_id = sqlc.arg(uid))
+   OR o.github_user_id IN (SELECT cm.github_user_id FROM crew_members cm WHERE cm.user_id = sqlc.arg(uid) AND cm.github_user_id IS NOT NULL);

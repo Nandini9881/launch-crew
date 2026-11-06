@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/shubham-tomar/launchcrew/internal/crew"
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
@@ -23,7 +25,8 @@ type Settings struct {
 	supportEmail string
 }
 
-// NewSettings returns the router for /me, /me/opt-out and /opt-out.
+// NewSettings returns the router for /me, /me/opt-out (POST to opt out,
+// DELETE to undo) and /opt-out.
 func NewSettings(deps crew.Deps, sessions *session.Store, supportEmail string) http.Handler {
 	s := &Settings{deps: deps, sessions: sessions, supportEmail: supportEmail}
 	r := chi.NewRouter()
@@ -31,6 +34,7 @@ func NewSettings(deps crew.Deps, sessions *session.Store, supportEmail string) h
 	r.MethodNotAllowed(methodNotAllowed)
 	r.Get("/me", s.me)
 	r.Post("/me/opt-out", s.optOut)
+	r.Delete("/me/opt-out", s.optIn)
 	r.Delete("/me", s.delete)
 	r.Post("/opt-out", s.tokenOptOut)
 	return r
@@ -111,11 +115,29 @@ func (s *Settings) optOut(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"optedOut": true})
+	writeJSON(w, http.StatusOK, map[string]any{"optedOut": true, "scope": "all"})
 }
 
-// tokenOptOut is the PR comment footer link: the invite token alone opts
-// that contributor out, signed in or not. It never checks expiry.
+// optIn undoes optOut: it removes the opt_outs rows for every GitHub id
+// linked to the user. Crew rows already marked opted_out keep their state.
+func (s *Settings) optIn(w http.ResponseWriter, r *http.Request) {
+	uid := s.sessions.Get(r).UserID
+	if uid == uuid.Nil {
+		writeError(w, http.StatusUnauthorized, "sign_in", "sign in with Buffer first")
+		return
+	}
+	if err := s.deps.Q.DeleteUserOptOuts(r.Context(), uid); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"optedOut": false})
+}
+
+// tokenOptOut is the PR comment footer link. The token sits in a public
+// comment, so on its own it only opts out the one crew row it names; it never
+// checks expiry. The GitHub id is opted out everywhere only when the session
+// belongs to the user who has proved that GitHub identity, since otherwise any
+// reader of the PR could silence the contributor for good.
 func (s *Settings) tokenOptOut(w http.ResponseWriter, r *http.Request) {
 	tok := r.URL.Query().Get("token")
 	if tok == "" {
@@ -140,20 +162,48 @@ func (s *Settings) tokenOptOut(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	global, err := s.ownsGitHubID(ctx, s.sessions.Get(r).UserID, m.GithubUserID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	err = s.inTx(r, func(q *sqlc.Queries) error {
-		if m.GithubUserID.Valid {
-			if err := q.InsertOptOut(ctx, m.GithubUserID.Int64); err != nil {
-				return err
-			}
-			return q.MarkGitHubCrewOptedOut(ctx, m.GithubUserID)
+		if err := q.MarkCrewMemberOptedOut(ctx, m.ID); err != nil {
+			return err
 		}
-		return q.MarkCrewMemberOptedOut(ctx, m.ID)
+		if !global {
+			return nil
+		}
+		if err := q.InsertOptOut(ctx, m.GithubUserID.Int64); err != nil {
+			return err
+		}
+		return q.MarkGitHubCrewOptedOut(ctx, m.GithubUserID)
 	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"optedOut": true})
+	// scope tells the page what happened: "launch" for this row, "all" for the GitHub id.
+	scope := "launch"
+	if global {
+		scope = "all"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"optedOut": true, "scope": scope})
+}
+
+// ownsGitHubID reports whether the signed-in user holds the GitHub identity gh.
+func (s *Settings) ownsGitHubID(ctx context.Context, uid uuid.UUID, gh pgtype.Int8) (bool, error) {
+	if uid == uuid.Nil || !gh.Valid {
+		return false, nil
+	}
+	ident, err := s.deps.Q.GetGitHubIdentity(ctx, gh.Int64)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return ident.UserID == uid, nil
 }
 
 // delete removes the user's tokens, drafts and crew rows in one transaction.
