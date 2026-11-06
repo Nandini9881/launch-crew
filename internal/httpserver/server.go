@@ -41,7 +41,13 @@ func New(deps Deps) http.Handler {
 	if oa := deps.BufferOAuth; oa != nil {
 		r.Get("/auth/buffer/start", oa.Start)
 		r.Get("/auth/buffer/callback", oa.Callback)
-		r.Get("/auth/logout", oa.Logout)
+		// POST only: a GET that signs the person out could be triggered cross-site.
+		// The GET is answered here so it does not fall through to the SPA.
+		r.Post("/auth/logout", oa.Logout)
+		r.Get("/auth/logout", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "sign out with a POST", http.StatusMethodNotAllowed)
+		})
 	}
 	if in := deps.Install; in != nil {
 		r.Get("/github/install/start", in.Start)

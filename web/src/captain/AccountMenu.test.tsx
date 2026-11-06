@@ -43,3 +43,13 @@ test('the button toggles it shut', async () => {
   await user.click(screen.getByText('Account'))
   expect(menu().open).toBe(false)
 })
+
+test('Sign out posts to /auth/logout instead of following a link', () => {
+  render(<AccountMenu />)
+  const btn = screen.getByRole('button', { name: 'Sign out' })
+  const form = btn.closest('form')
+  expect(form).not.toBeNull()
+  expect(form?.getAttribute('method')).toBe('post')
+  expect(form?.getAttribute('action')).toBe('/auth/logout')
+  expect(screen.queryByRole('link', { name: 'Sign out' })).toBeNull()
+})
