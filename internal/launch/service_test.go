@@ -1078,3 +1078,32 @@ func TestRetriedLaunchJobReplacesDeadWindowJobs(t *testing.T) {
 	}
 }
 
+// A LaunchJob retried after launch_at cannot schedule at a time in the past;
+// Buffer refuses that. The captain's posts take the next queue slot instead,
+// and the draft says so.
+func TestLateLaunchJobQueuesCaptainPosts(t *testing.T) {
+	e := setup(t)
+	if err := launch.Launch(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	late := e.launch.LaunchAt.Time.Add(30 * time.Minute)
+	e.deps.Now = func() time.Time { return late }
+	if err := e.drain(t); err != nil {
+		t.Fatalf("late launch job: %v", err)
+	}
+	posts := e.createInputs()
+	if len(posts) != 2 {
+		t.Fatalf("%d captain posts, want 2", len(posts))
+	}
+	for _, in := range posts {
+		if in["mode"] != "addToQueue" || in["dueAt"] != nil {
+			t.Fatalf("late captain post scheduled in the past: %v", in)
+		}
+	}
+	ds, _ := e.q.ListCaptainDrafts(e.ctx, e.launch.ID)
+	for _, d := range ds {
+		if d.Status != "queued" || d.BufferPostID.String != "post-1" || !strings.Contains(d.Note, "queue") {
+			t.Fatalf("captain draft %s: %s %q note=%q", d.ChannelID, d.Status, d.BufferPostID.String, d.Note)
+		}
+	}
+}
