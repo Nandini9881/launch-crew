@@ -9,6 +9,7 @@ type Props = {
   limit?: number
   countFirst?: string // first thread segment, counted until the person edits
   readOnly?: boolean
+  lockedNote?: string // why the box is read-only, shown in place of the voice caption
   onText: (text: string) => void
   onSave: (text: string) => void
 }
@@ -17,7 +18,7 @@ const reduced = () => typeof window.matchMedia === 'function' && window.matchMed
 
 // One editable draft. A newer server text replaces it only while the person is neither
 // typing in it nor has edited it; a swap waits for blur.
-export default function DraftBox({ id, serverText, fromModel, waiting, limit, countFirst, readOnly, onText, onSave }: Props) {
+export default function DraftBox({ id, serverText, fromModel, waiting, limit, countFirst, readOnly, lockedNote, onText, onSave }: Props) {
   const [value, setValue] = useState(serverText)
   const [model, setModel] = useState(fromModel)
   const [reveal, setReveal] = useState(false)
@@ -68,7 +69,7 @@ export default function DraftBox({ id, serverText, fromModel, waiting, limit, co
 
   const n = edited.current || countFirst === undefined ? value.length : countFirst.length
   const near = limit !== undefined && n >= limit - 20
-  const caption = model ? 'written how you write' : waiting ? 'a version in your voice is on its way' : ''
+  const caption = readOnly && lockedNote ? lockedNote : model ? 'written how you write' : waiting ? 'a version in your voice is on its way' : ''
 
   return (
     <div className={reveal ? 'draftbox draft-reveal' : 'draftbox'}>

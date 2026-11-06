@@ -428,3 +428,19 @@ test('character limit is per channel: LinkedIn is not held to the X limit', asyn
   expect(visible(/290 of 280 characters/)).toBe(0)
   expect(visible(/of 3000 characters/)).toBe(0)
 })
+
+test('a draft already in Buffer locks with a caption that says where to edit it', async () => {
+  mockApi({ connect: approveView({ voicedReady: true, channels: [X], drafts: [dr('d1', 'c1', 'template one')] }) })
+  const base = (globalThis.fetch as ReturnType<typeof vi.fn>).getMockImplementation()!
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
+    init?.method === 'PUT' && url.endsWith('/drafts/d1')
+      ? Promise.resolve(new Response(JSON.stringify({ error: 'already_queued', message: 'x' }), { status: 409 }))
+      : base(url, init)))
+  const user = userEvent.setup()
+  visit()
+  const area = await box()
+  await user.type(area, '!')
+  await user.tab()
+  await waitFor(() => expect(area).toHaveAttribute('readonly'))
+  expect(screen.getByText('Already in your Buffer, edit it there')).toBeInTheDocument()
+})

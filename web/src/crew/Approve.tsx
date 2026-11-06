@@ -322,6 +322,7 @@ export default function Approve() {
                   limit={limitOf(d)}
                   countFirst={d.thread[0]}
                   readOnly={locked.has(d.id)}
+                  lockedNote="Already in your Buffer, edit it there"
                   onText={(t) => (texts.current[d.id] = t)}
                   onSave={(t) => save(d.id, t)}
                 />
