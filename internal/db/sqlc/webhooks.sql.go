@@ -7,7 +7,21 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const deleteWebhookDeliveriesBefore = `-- name: DeleteWebhookDeliveriesBefore :execrows
+DELETE FROM webhook_deliveries WHERE received_at < $1
+`
+
+func (q *Queries) DeleteWebhookDeliveriesBefore(ctx context.Context, receivedAt pgtype.Timestamptz) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteWebhookDeliveriesBefore, receivedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
 
 const deleteWebhookDelivery = `-- name: DeleteWebhookDelivery :exec
 DELETE FROM webhook_deliveries WHERE delivery_id = $1
