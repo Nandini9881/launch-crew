@@ -409,3 +409,22 @@ test('refresh channels says so when Buffer cannot be reached, and can be tried a
   expect(await screen.findByText('Could not reach Buffer, try again.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Refresh channels' })).toBeEnabled()
 })
+
+test('character limit is per channel: LinkedIn is not held to the X limit', async () => {
+  const LI = ch('c3', 'Ada on LinkedIn', 'linkedin')
+  const long = 'y'.repeat(290)
+  mockApi({ connect: approveView({
+    voicedReady: true,
+    channels: [X, LI],
+    drafts: [dr('d1', 'c1', 'x'.repeat(270)), dr('d3', 'c3', long, { network: 'linkedin' })],
+  }) })
+  const user = userEvent.setup()
+  visit()
+  await box()
+  const visible = (re: RegExp) => screen.queryAllByText(re).filter((e) => e.closest('[hidden]') === null).length
+  expect(visible(/270 of 280 characters/)).toBe(1)
+  await user.click(screen.getByRole('tab', { name: /^Ada on LinkedIn/ }))
+  expect(await box()).toHaveValue(long)
+  expect(visible(/290 of 280 characters/)).toBe(0)
+  expect(visible(/of 3000 characters/)).toBe(0)
+})

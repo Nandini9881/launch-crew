@@ -179,7 +179,8 @@ export default function Approve() {
     return c && n.toLowerCase() !== c.name.toLowerCase() ? n : ''
   }
   const done = (id: string) => outcomes[id]?.status === 'queued' || outcomes[id]?.status === 'draft'
-  const limit = Math.min(...shown.map((d) => LIMITS[d.network.toLowerCase()] ?? Infinity))
+  // Each draft is counted against its own network; the limits differ per channel.
+  const limitOf = (d: { network: string }) => LIMITS[d.network.toLowerCase()]
   const eligible = channels.some((c) => c.eligible)
   const tabKey = (e: KeyboardEvent, i: number) => {
     const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? shown.length - 1 : -1
@@ -318,7 +319,7 @@ export default function Approve() {
                   serverText={d.text}
                   fromModel={d.fromModel && !(rewriting && polling)}
                   waiting={polling}
-                  limit={Number.isFinite(limit) ? limit : undefined}
+                  limit={limitOf(d)}
                   countFirst={d.thread[0]}
                   readOnly={locked.has(d.id)}
                   onText={(t) => (texts.current[d.id] = t)}
