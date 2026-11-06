@@ -104,3 +104,26 @@ func TestLogoutIsPostOnly(t *testing.T) {
 		t.Fatalf("session cookie not cleared: %v", cs)
 	}
 }
+
+// Every response, API and HTML alike, carries the two cheap hardening headers;
+// the framing headers stay on the SPA index only.
+func TestHardeningHeadersOnEveryResponse(t *testing.T) {
+	h := httpserver.New(httpserver.Deps{})
+	paths := []string{"/healthz", "/api/nope", "/e2e/reset"}
+	if _, err := os.Stat("dist/index.html"); err == nil {
+		paths = append(paths, "/captain/anything")
+	}
+	for _, p := range paths {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", p, nil))
+		if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options = %q", p, got)
+		}
+		if got := rr.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+			t.Errorf("%s: Referrer-Policy = %q", p, got)
+		}
+		if p == "/healthz" && rr.Header().Get("Content-Security-Policy") != "" {
+			t.Errorf("%s: a CSP leaked onto a non-HTML response", p)
+		}
+	}
+}
