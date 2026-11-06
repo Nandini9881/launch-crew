@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import Button from '../components/Button'
 import type { CrewRow, Detail } from '../api'
 import { copy, initials, stateTone } from './format'
@@ -12,18 +12,28 @@ type Props = {
 
 const pickable = (c: CrewRow) => c.state === 'suggested' || c.state === 'ticked'
 
-function CopyLink({ url, label }: { url: string; label: string }) {
-  const [done, setDone] = useState(false)
+// Copies the link; when the clipboard is blocked it selects the field with the link
+// (the one passed in, or its own read-only one) and says "Select and copy" instead.
+function CopyLink({ url, label, field }: { url: string; label: string; field?: RefObject<HTMLInputElement | null> }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'manual'>('idle')
+  const own = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (state !== 'manual') return
+    const el = field?.current ?? own.current
+    el?.focus()
+    el?.select()
+  }, [state, field])
+
   return (
-    <Button
-      variant="secondary"
-      onClick={async () => {
-        await copy(url)
-        setDone(true)
-      }}
-    >
-      {done ? 'Copied' : label}
-    </Button>
+    <>
+      <Button variant="secondary" onClick={async () => setState((await copy(url)) ? 'copied' : 'manual')}>
+        {state === 'copied' ? 'Copied' : state === 'manual' ? 'Select and copy' : label}
+      </Button>
+      {state === 'manual' && !field && (
+        <input ref={own} className="field cap-mono-field" readOnly value={url} aria-label="Invite link" onFocus={(e) => e.currentTarget.select()} />
+      )}
+    </>
   )
 }
 
@@ -37,6 +47,7 @@ export default function Crew({ detail, pending, onTicked, onRetryComment }: Prop
   }
   const total = detail.counts.total + 1
   const captain = detail.captainName || 'You'
+  const openLink = useRef<HTMLInputElement>(null)
   return (
     <section className="cap-section panel" aria-labelledby="cap-crew">
       <h2 id="cap-crew">The crew · {total}</h2>
@@ -109,12 +120,13 @@ export default function Crew({ detail, pending, onTicked, onRetryComment }: Prop
           <div className="cap-addlink-row">
             <input
               id="cap-openlink"
+              ref={openLink}
               className="field cap-mono-field"
               readOnly
               value={detail.openUrl}
               onFocus={(e) => e.currentTarget.select()}
             />
-            <CopyLink url={detail.openUrl} label="Copy link" />
+            <CopyLink url={detail.openUrl} label="Copy link" field={openLink} />
           </div>
         </div>
       )}

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import Wordmark from './Wordmark'
 import './components.css'
 
@@ -15,9 +16,9 @@ type Props = {
 export default function NavPill({ home = '/', links, end }: Props) {
   return (
     <header className="navpill">
-      <a className="navpill-home" href={home}>
+      <Link className="navpill-home" to={home}>
         <Wordmark />
-      </a>
+      </Link>
       {links && (
         <nav className="navpill-nav" aria-label="Main">
           <ul>{links}</ul>

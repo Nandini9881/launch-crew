@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import App from '../App'
@@ -429,4 +429,55 @@ test('no retry button for a comment that did not fail', async () => {
   visit('/captain/launches/l1')
   await screen.findByText('Maya Kapoor')
   expect(screen.queryByRole('button', { name: /Retry comment/ })).toBeNull()
+})
+
+test('offline shows a plain message and Retry loads the launch', async () => {
+  const fetchMock = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValue(new Response(JSON.stringify(detail()), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+  visit('/captain/launches/l1')
+  expect(await screen.findByRole('heading', { level: 1, name: 'Could not load this launch' })).toBeInTheDocument()
+  expect(screen.getByText('Could not reach Launch Crew. Check your connection and try again.')).toBeInTheDocument()
+  expect(screen.queryByText(/Failed to fetch/)).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'rocket v1.2.0' })).toBeInTheDocument()
+})
+
+test('a 404 launch has no Retry, since trying again will not help', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: 'not_found' }), { status: 404 }))))
+  visit('/captain/launches/l1')
+  expect(await screen.findByRole('heading', { level: 1, name: 'Launch not found' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+})
+
+test('when the clipboard is blocked the link field is selected and the button says so', async () => {
+  mockApi({ detail: detail({ source: 'manual', openUrl: 'https://lc.test/l/abc' }) })
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+  visit('/captain/launches/l1')
+  const button = await screen.findByRole('button', { name: 'Copy link' })
+  await userEvent.click(button)
+  expect(await screen.findByRole('button', { name: 'Select and copy' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull()
+  const field = screen.getByLabelText('Add by link') as HTMLInputElement
+  expect(field).toHaveFocus()
+  expect(field.selectionEnd! - field.selectionStart!).toBe(field.value.length)
+})
+
+// 140 s sits between the rounding boundaries of until() (2.33 min, then 1.33, then 0.33),
+// so a few seconds of real time on a slow CI runner cannot flip a tick early.
+test('the hero countdown ticks and asks for a later time once the moment passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    mockApi({ detail: detail({ launchAt: new Date(Date.now() + 140_000).toISOString() }) })
+    visit('/captain/launches/l1')
+    const side = (await screen.findByText('Window opens in')).parentElement!
+    expect(within(side).getByText('2m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(side).getByText('1m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(side).getByText('Pick a later time')).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
 })

@@ -361,6 +361,9 @@ test('saving the voice updates the line, restarts the poll and keeps edits', asy
   m.polled = { voicedReady: true, drafts: [dr('d1', 'c1', 'rewritten', { fromModel: true })] }
   await advance(1600)
   expect(area).toHaveValue('voiced one!') // edited: never replaced
+  // the note is a moment's reassurance, not a permanent fixture
+  await advance(5000)
+  expect(screen.queryByText('your edits are kept; new drafts will use this voice')).toBeNull()
 })
 
 test('unedited draft is replaced by the rewrite after a voice save', async () => {
@@ -408,4 +411,71 @@ test('refresh channels says so when Buffer cannot be reached, and can be tried a
   await user.click(screen.getByRole('button', { name: 'Refresh channels' }))
   expect(await screen.findByText('Could not reach Buffer, try again.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Refresh channels' })).toBeEnabled()
+})
+
+test('character limit is per channel: LinkedIn is not held to the X limit', async () => {
+  const LI = ch('c3', 'Ada on LinkedIn', 'linkedin')
+  const long = 'y'.repeat(290)
+  mockApi({ connect: approveView({
+    voicedReady: true,
+    channels: [X, LI],
+    drafts: [dr('d1', 'c1', 'x'.repeat(270)), dr('d3', 'c3', long, { network: 'linkedin' })],
+  }) })
+  const user = userEvent.setup()
+  visit()
+  await box()
+  const visible = (re: RegExp) => screen.queryAllByText(re).filter((e) => e.closest('[hidden]') === null).length
+  expect(visible(/270 of 280 characters/)).toBe(1)
+  await user.click(screen.getByRole('tab', { name: /^Ada on LinkedIn/ }))
+  expect(await box()).toHaveValue(long)
+  expect(visible(/290 of 280 characters/)).toBe(0)
+  expect(visible(/of 3000 characters/)).toBe(0)
+})
+
+test('a draft already in Buffer locks with a caption that says where to edit it', async () => {
+  mockApi({ connect: approveView({ voicedReady: true, channels: [X], drafts: [dr('d1', 'c1', 'template one')] }) })
+  const base = (globalThis.fetch as ReturnType<typeof vi.fn>).getMockImplementation()!
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
+    init?.method === 'PUT' && url.endsWith('/drafts/d1')
+      ? Promise.resolve(new Response(JSON.stringify({ error: 'already_queued', message: 'x' }), { status: 409 }))
+      : base(url, init)))
+  const user = userEvent.setup()
+  visit()
+  const area = await box()
+  await user.type(area, '!')
+  await user.tab()
+  await waitFor(() => expect(area).toHaveAttribute('readonly'))
+  expect(screen.getByText('Already in your Buffer, edit it there')).toBeInTheDocument()
+})
+
+test('with no channel ticked the primary button names what is missing', async () => {
+  mockApi({ connect: approveView({ voicedReady: true, channels: [X], drafts: [dr('d1', 'c1', 'template one')] }) })
+  const user = userEvent.setup()
+  visit()
+  const chip = await screen.findByRole('checkbox', { name: /^Ada on X/ })
+  expect(screen.getByRole('button', { name: 'Add to my queue' })).toBeEnabled()
+  await user.click(chip)
+  const pick = screen.getByRole('button', { name: 'Pick a channel' })
+  expect(pick).toBeDisabled()
+  await user.click(screen.getByRole('checkbox', { name: /^Ada on X/ }))
+  expect(screen.getByRole('button', { name: 'Add to my queue' })).toBeEnabled()
+})
+
+test('a 401 sends the person to reconnect once; a second 401 straight after shows a message, not a loop', async () => {
+  const assign = vi.fn()
+  vi.stubGlobal('location', { ...window.location, assign })
+  sessionStorage.clear()
+  mockApi({ connect: { status: 401, error: 'reconnect', message: 'Buffer token expired' } })
+  const first = visit()
+  await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/buffer/start?return_to=/s/tok1/approve'))
+  first.unmount()
+
+  // Back from OAuth and Buffer still says 401: do not bounce again.
+  assign.mockClear()
+  mockApi({ connect: { status: 401, error: 'reconnect', message: 'Buffer token expired' } })
+  visit()
+  expect(await screen.findByRole('link', { name: 'Reconnect Buffer' })).toHaveAttribute('href', '/auth/buffer/start?return_to=/s/tok1/approve')
+  expect(screen.getByRole('alert')).toHaveTextContent(/Buffer did not accept the connection/)
+  expect(assign).not.toHaveBeenCalled()
+  sessionStorage.clear()
 })

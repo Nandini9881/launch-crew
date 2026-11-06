@@ -18,7 +18,17 @@ export const toLocalInput = (iso: string | null) => {
 
 export const fromLocalInput = (v: string) => new Date(v).toISOString()
 
-export const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => undefined)
+// True when the clipboard took the text; false when it is missing or blocked, so the
+// caller can fall back to a selected field instead of claiming "Copied".
+export const copy = async (text: string): Promise<boolean> => {
+  try {
+    if (!navigator.clipboard) return false
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export const asError = (e: unknown) => (e instanceof ApiError ? e : new ApiError(0, 'error', String(e)))
 

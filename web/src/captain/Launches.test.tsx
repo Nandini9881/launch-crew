@@ -1,4 +1,5 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import type { LaunchSummary } from '../api'
 import Launches, { viewOf } from './Launches'
@@ -67,4 +68,37 @@ test('live and closed launches read queued and posted', async () => {
 test('viewOf: draft with crew who have not approved is Joining', () => {
   expect(viewOf(base({ crewIn: 0, crewTotal: 4 })).label).toBe('Joining')
   expect(viewOf(base({ crewIn: 0, crewTotal: 0 })).label).toBe('Draft')
+})
+
+test('offline shows a plain message and Retry fetches again', async () => {
+  const fetchMock = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce(new Response(JSON.stringify([base()]), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+  render(
+    <MemoryRouter>
+      <Launches />
+    </MemoryRouter>,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach Launch Crew. Check your connection and try again.')
+  expect(screen.queryByText(/Failed to fetch/)).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByRole('link', { name: /Split-pane/ })).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+test('the countdown ticks every minute and turns Overdue once the moment passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    show([base({ launchAt: new Date(Date.now() + 90_000).toISOString() })])
+    const link = await screen.findByRole('link', { name: /Split-pane/ })
+    expect(within(link).getByText('2m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(link).getByText('1m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(link).getByText('Overdue')).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
 })

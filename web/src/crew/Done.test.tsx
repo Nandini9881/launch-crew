@@ -204,3 +204,35 @@ test('board shows the role only when it differs from the name', async () => {
   const ada = screen.getByText('ada').closest('li')!
   expect(within(ada).getByText('contributor')).toBeInTheDocument()
 })
+
+test('a failed drafts fetch on reload never reads as empty; Retry asks again', async () => {
+  const calls = mockApi({ drafts: [{ id: 'd1', channelId: 'c1', network: 'twitter', status: 'queued', bufferPostId: 'p7' }] })
+  const base = (globalThis.fetch as ReturnType<typeof vi.fn>).getMockImplementation()!
+  let fail = true
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith('/drafts') && fail) {
+      fail = false
+      calls.push({ method: 'GET', url })
+      return Promise.resolve(new Response(JSON.stringify({ error: 'internal' }), { status: 500 }))
+    }
+    return base(url, init)
+  }))
+  visit()
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent(/could not load what was queued/i)
+  expect(screen.queryByRole('heading', { name: 'Nothing queued yet' })).toBeNull()
+  await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Added to your queue')
+  expect(calls.filter((c) => c.url.endsWith('/drafts'))).toHaveLength(2)
+})
+
+test('board copy link falls back to a selected field when the clipboard is blocked', async () => {
+  mockApi({ board: crewOf([row('Ada', 'queued')], 1) })
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+  visit([out({})])
+  await userEvent.click(await screen.findByRole('button', { name: 'Copy link' }))
+  expect(await screen.findByRole('button', { name: 'Select and copy' })).toBeInTheDocument()
+  const field = screen.getByRole('textbox', { name: 'Crew link' }) as HTMLInputElement
+  expect(field).toHaveValue('https://x/r')
+  expect(field).toHaveFocus()
+})

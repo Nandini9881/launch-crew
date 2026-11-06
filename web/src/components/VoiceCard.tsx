@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { ApiError, type VoiceProfile } from '../api'
 import Alert from './Alert'
@@ -20,6 +20,8 @@ const GROUPS = [
 ] as const
 
 const BUSY = 'Buffer is not answering, try again'
+// The Saved note is a moment's confirmation; it clears by itself or on the next change.
+const SAVED_FOR = 4000
 
 // Editable voice: three radio groups and a short note. Saving rewrites the drafts.
 export default function VoiceCard({ profile, onSave, onClose }: Props) {
@@ -34,6 +36,18 @@ export default function VoiceCard({ profile, onSave, onClose }: Props) {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const inflight = useRef(false)
+
+  useEffect(() => {
+    if (!saved) return
+    const t = window.setTimeout(() => setSaved(false), SAVED_FOR)
+    return () => window.clearTimeout(t)
+  }, [saved])
+
+  // Any change to the voice makes the last Saved note stale.
+  const change = (patch: Partial<VoiceEdit>) => {
+    setSaved(false)
+    setEdit((v) => ({ ...v, ...patch }))
+  }
 
   async function save() {
     if (inflight.current) return
@@ -70,7 +84,7 @@ export default function VoiceCard({ profile, onSave, onClose }: Props) {
                   type="radio"
                   name={`${name}-${g.key}`}
                   checked={edit[g.key] === value}
-                  onChange={() => setEdit((v) => ({ ...v, [g.key]: value }))}
+                  onChange={() => change({ [g.key]: value })}
                 />
                 {label}
               </label>
@@ -86,13 +100,13 @@ export default function VoiceCard({ profile, onSave, onClose }: Props) {
           maxLength={80}
           placeholder="e.g. never say excited"
           value={edit.extra}
-          onChange={(e) => setEdit((v) => ({ ...v, extra: e.target.value }))}
+          onChange={(e) => change({ extra: e.target.value })}
         />
       </label>
       {error && <Alert tone="error">{error}</Alert>}
       {saved && <Alert tone="success" role="status">Saved. Your drafts are being rewritten.</Alert>}
       <div className="voicecard-actions">
-        <Button variant="secondary" busy={busy} onClick={save}>Rewrite in this voice</Button>
+        <Button variant="secondary" busy={busy} onClick={save}>{busy ? 'Rewriting…' : 'Rewrite in this voice'}</Button>
         <Button variant="secondary" onClick={onClose}>Done</Button>
       </div>
     </div>

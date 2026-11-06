@@ -56,3 +56,22 @@ test('the QR centre is the plane unless the captain chose otherwise', () => {
   // a custom logo with no address cannot be drawn: keep the plane
   expect(logoOf({ qrLogo: 'custom', qrLogoUrl: '' })).toEqual({ kind: 'plane' })
 })
+
+test('the QR colours come from the design tokens, not literals', async () => {
+  const tokens: Record<string, string> = { '--color-card-ink': '#111111', '--color-slide-text': '#eeeeee', '--color-primary': '#222222' }
+  vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: (k: string) => tokens[k] ?? '' }))
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(new Response(JSON.stringify({ title: 'T', shortUrl: 'https://lc.test/l/open1' })))))
+  const fill: string[] = []
+  const ctx = {
+    save() {}, restore() {}, translate() {}, scale() {}, rotate() {}, beginPath() {}, moveTo() {}, arcTo() {}, closePath() {},
+    fill() { fill.push(String(this.fillStyle)) }, fillStyle: '',
+  }
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
+  vi.stubGlobal('Path2D', class {})
+  visit()
+  await screen.findByRole('heading', { level: 1 })
+  await vi.waitFor(() => expect(toCanvas).toHaveBeenLastCalledWith(expect.anything(), 'https://lc.test/l/open1',
+    expect.objectContaining({ color: { dark: '#111111', light: '#eeeeee' } })))
+  await vi.waitFor(() => expect(fill).toEqual(['#eeeeee', '#222222']))
+  vi.restoreAllMocks()
+})

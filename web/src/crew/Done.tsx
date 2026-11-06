@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
 import { getDrafts, remember, type Outcome } from '../api'
+import Alert from '../components/Alert'
+import Button from '../components/Button'
 import Row from '../components/Row'
 import Skeleton from '../components/Skeleton'
 import Board from './Board'
@@ -35,6 +37,10 @@ export default function Done() {
   const { view, error } = useInvite(token)
   const given = (useLocation().state as { outcomes?: Outcome[] } | null)?.outcomes
   const [fetched, setFetched] = useState<Outcome[]>()
+  const [fetchFailed, setFetchFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  // TODO: mount this from the server once /drafts or /board carries the remember flag;
+  // neither response has it today, so the box always starts unchecked.
   const [saved, setSaved] = useState(false)
   const [saveFailed, setSaveFailed] = useState(false)
 
@@ -42,20 +48,22 @@ export default function Done() {
   const ok = view !== undefined && !view.foreign
 
   // Reload: no router state, so rebuild the lines from the member's drafts.
+  // A failed fetch is its own state: the person just queued posts, so "nothing queued" would be a lie.
   useEffect(() => {
     if (given?.length || !ok || !memberId) return
     let live = true
+    setFetchFailed(false)
     getDrafts(memberId, token).then(
       (r) => live && setFetched(r.drafts
         // a draft row counts only once Buffer holds it
         .filter((d) => d.status === 'queued' || (d.status === 'draft' && d.bufferPostId))
         .map((d) => ({ channelId: d.channelId, service: d.network, status: d.status as 'queued' | 'draft', when: null, note: '', postId: d.bufferPostId }))),
-      () => live && setFetched([]),
+      () => live && setFetchFailed(true),
     )
     return () => {
       live = false
     }
-  }, [given, ok, memberId, token])
+  }, [given, ok, memberId, token, attempt])
 
   if (error) return <Dead code={error.code} />
   if (view?.foreign) return <Foreign releaseUrl={view.launch.releaseUrl} />
@@ -80,7 +88,12 @@ export default function Done() {
 
   return (
     <CrewFrame version={view?.launch.version} footer>
-      {!view || !outcomes ? (
+      {fetchFailed && !outcomes ? (
+        <Alert tone="error">
+          Could not load what was queued.{' '}
+          <Button variant="secondary" onClick={() => setAttempt((n) => n + 1)}>Retry</Button>
+        </Alert>
+      ) : !view || !outcomes ? (
         <Skeleton lines={3} />
       ) : !title ? (
         <>

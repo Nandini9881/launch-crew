@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import type { Repo } from '../api'
@@ -51,4 +51,50 @@ test('no repos shows a friendly empty state with the add button', async () => {
   expect(await screen.findByRole('heading', { name: 'No repos yet' })).toBeInTheDocument()
   expect(screen.getAllByRole('link', { name: 'Add a repo' }).length).toBeGreaterThan(0)
   expect(screen.getByText(/creates a draft launch/)).toBeInTheDocument()
+})
+
+test('offline shows a plain message and Retry fetches again', async () => {
+  const fetchMock = vi.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce(new Response(JSON.stringify([repo()]), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+  render(
+    <MemoryRouter>
+      <Repos />
+    </MemoryRouter>,
+  )
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach Launch Crew. Check your connection and try again.')
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  expect(await screen.findByText('acme/rocket')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+test('a switch flips at once, is held while saving, and reverts with an inline error on failure', async () => {
+  let release!: (r: Response) => void
+  const list = [repo()]
+  vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
+    if (init?.method === 'PATCH') return new Promise<Response>((res) => { release = res })
+    return Promise.resolve(new Response(JSON.stringify(list), { status: 200 }))
+  }))
+  render(
+    <MemoryRouter>
+      <Repos />
+    </MemoryRouter>,
+  )
+  const pre = await screen.findByRole('switch', { name: 'acme/rocket: include prereleases' })
+  const watch = screen.getByRole('switch', { name: 'acme/rocket: watch releases' })
+  await userEvent.click(pre)
+  expect(pre).toBeChecked() // optimistic
+  expect(pre).toBeDisabled()
+  expect(watch).toBeDisabled() // the whole row waits
+  expect(screen.getByText('Watching releases and prereleases')).toBeInTheDocument()
+
+  release(new Response(JSON.stringify({ error: 'github_unavailable', message: 'GitHub is not answering' }), { status: 502 }))
+  await screen.findByText(/GitHub is not answering/)
+  expect(pre).not.toBeChecked()
+  expect(pre).toBeEnabled()
+  const row = pre.closest('li')!
+  expect(within(row).getByRole('alert')).toHaveTextContent('GitHub is not answering')
+  expect(screen.getByText('Watching releases')).toBeInTheDocument()
 })

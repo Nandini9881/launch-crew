@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { readFileSync } from 'node:fs'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation } from 'react-router'
 import App from '../App'
 import type { View } from '../api'
 
@@ -37,6 +37,10 @@ function mockApi(view: Partial<View> | { status: number; error: string }) {
     }),
   )
   return calls
+}
+
+function WhereAmI() {
+  return <p data-testid="where">{useLocation().pathname}</p>
 }
 
 function visit(path: string) {
@@ -238,4 +242,24 @@ test('renders without a launch time', async () => {
   mockApi({ launch: { ...base.launch, launchAt: null } })
   visit('/s/tok1')
   expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Ship the thing')
+})
+
+test('Continue is an in-app link to the approve screen, not a page load', async () => {
+  mockApi({ connected: true })
+  // The approve screen that follows asks /connect; answer with an empty channel set.
+  const base = (globalThis.fetch as ReturnType<typeof vi.fn>).getMockImplementation()!
+  vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
+    url.endsWith('/connect')
+      ? reply(200, { memberId: 'm1', channels: [], drafts: [], voice: {}, voiceLine: '', timing: ['queue'], closed: false, needsReconnect: false, voicedReady: true })
+      : base(url, init)))
+  render(
+    <MemoryRouter initialEntries={['/s/tok1']}>
+      <App />
+      <WhereAmI />
+    </MemoryRouter>,
+  )
+  const cont = await screen.findByRole('link', { name: 'Continue' })
+  expect(cont).toHaveAttribute('href', '/s/tok1/approve')
+  await userEvent.click(cont)
+  await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/s/tok1/approve'))
 })

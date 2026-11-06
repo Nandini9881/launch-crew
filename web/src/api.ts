@@ -84,8 +84,16 @@ export type ApproveView = {
 export type Selection = { channelId: string; text: string; timing: Timing; assetUrl: string }
 export type Outcome = { channelId: string; service: string; status: 'queued' | 'draft' | 'failed'; when: string | null; note: string; postId?: string }
 
+export const OFFLINE = 'Could not reach Launch Crew. Check your connection and try again.'
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init)
+  let res: Response
+  try {
+    res = await fetch(path, init)
+  } catch {
+    // The browser's own text ("Failed to fetch") names no next step; this does.
+    throw new ApiError(0, 'offline', OFFLINE)
+  }
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApiError(res.status, body.error ?? 'error', body.message ?? res.statusText)
   return body as T

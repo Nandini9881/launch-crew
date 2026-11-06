@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { listLaunches, type ApiError, type LaunchSummary } from '../api'
 import Alert from '../components/Alert'
+import Button from '../components/Button'
 import Loader from '../components/Loader'
 import Frame from './Frame'
 import { asError, stamp, until } from './format'
+import { useNow } from './useNow'
 import './launches.css'
 
 type Tone = 'draft' | 'joining' | 'approving' | 'live' | 'closed'
@@ -154,6 +156,7 @@ function LaunchCard({ l, now }: { l: LaunchSummary; now: number }) {
 export default function Launches() {
   const [items, setItems] = useState<LaunchSummary[]>()
   const [error, setError] = useState<ApiError>()
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -163,15 +166,22 @@ export default function Launches() {
     return () => {
       live = false
     }
-  }, [])
+  }, [attempt])
 
-  const now = Date.now()
+  const retry = () => {
+    setError(undefined)
+    setAttempt((n) => n + 1)
+  }
+
+  const now = useNow()
   return (
     <Frame>
       {error ? (
         <>
           <h1 className="cap-title">Launches</h1>
-          <Alert tone="error">{error.message}</Alert>
+          <Alert tone="error">
+            {error.message} <Button variant="secondary" onClick={retry}>Retry</Button>
+          </Alert>
         </>
       ) : !items ? (
         <>
