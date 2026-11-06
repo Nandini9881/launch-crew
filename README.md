@@ -38,6 +38,13 @@ flowchart TD
     JOBS --> BOARD[Crew board for the captain]
 ```
 
+### From a release to posts
+
+1. Publishing a GitHub Release is only the trigger. The signed webhook (`release`, action `published`) creates a draft launch from the release notes and the pull requests since the previous tag. Nothing is sent to anyone yet.
+2. The captain (the release author) reviews the draft, sets the launch moment or window, and presses Launch.
+3. The bot then comments on each contributor's pull request with an invite link. The captain is skipped: their own pull requests get no comment.
+4. A contributor opens the link, verifies with GitHub, connects their own Buffer account, edits their post, and approves it into their own Buffer queue. Nothing is posted without that approval.
+
 A single Go binary serves the API, the webhook, the job worker and the embedded React app. State lives in Postgres, which also holds the job queue (claimed with `FOR UPDATE SKIP LOCKED`, five attempts, then dead-letter). Cards are rendered in Go and served from Cloudflare R2.
 
 ## Run locally
