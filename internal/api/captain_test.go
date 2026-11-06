@@ -128,6 +128,7 @@ func TestCaptainRoutesNeedTheOwner(t *testing.T) {
 		{"POST", base + "/channels/refresh", ""},
 		{"POST", base + "/crew/" + uuid.NewString() + "/retry-comment", ""},
 		{"PATCH", "/api/captain/repos/" + e.repo.ID.String(), `{"enabled":false}`},
+		{"POST", "/api/captain/repos/" + e.repo.ID.String() + "/card-preview", `{}`},
 	} {
 		if rr := e.do(c.method, c.path, c.body, nil, theirs); rr.Code != http.StatusNotFound {
 			t.Fatalf("%s %s by another user: %d, want 404", c.method, c.path, rr.Code)
@@ -198,6 +199,14 @@ func TestCaptainRoutesNeedTheOwner(t *testing.T) {
 	rr = e.do("PATCH", "/api/captain/repos/"+e.repo.ID.String(), `{"allowPrerelease":true}`, nil, mine)
 	if m := decode(t, rr); rr.Code != 200 || m["allowPrerelease"] != true || m["enabled"] != true {
 		t.Fatalf("repo patch: %d %s", rr.Code, rr.Body)
+	}
+	rr = e.do("POST", "/api/captain/repos/"+e.repo.ID.String()+"/card-preview", `{"accent":"#58D3AE"}`, nil, mine)
+	if m := decode(t, rr); rr.Code != 200 || !strings.HasPrefix(fmt.Sprint(m["png"]), "data:image/png;base64,") {
+		t.Fatalf("card preview: %d %.200s", rr.Code, rr.Body)
+	}
+	rr = e.do("POST", "/api/captain/repos/"+e.repo.ID.String()+"/card-preview", `{"accent":"#000000"}`, nil, mine)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("dark accent preview: %d", rr.Code)
 	}
 }
 
@@ -450,5 +459,39 @@ func TestCaptainRetryCommentOtherLaunch(t *testing.T) {
 	rr := e.do("POST", "/api/captain/launches/"+e.launch.ID.String()+"/crew/"+m.ID.String()+"/retry-comment", "", nil, mine)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("member of another launch: %d, want 404", rr.Code)
+	}
+}
+
+func TestCaptainSettingsRoutes(t *testing.T) {
+	e := setupCaptain(t)
+	mine := e.cookie(t, session.Session{UserID: e.owner.ID})
+	theirs := e.cookie(t, session.Session{UserID: e.other.ID})
+
+	if rr := e.do("GET", "/api/captain/settings", "", nil, nil); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("signed out: %d", rr.Code)
+	}
+	rr := e.do("GET", "/api/captain/settings", "", nil, mine)
+	v := decode(t, rr)
+	if rr.Code != 200 || v["commentTemplate"] != "" || v["draftNotes"] != "" || v["defaultComment"] == "" || v["preview"] == "" {
+		t.Fatalf("defaults: %d %s", rr.Code, rr.Body)
+	}
+	rr = e.do("PUT", "/api/captain/settings", `{"commentTemplate":"Thanks for your PR!"}`, nil, mine)
+	if rr.Code != http.StatusBadRequest || decode(t, rr)["error"] != "invalid" {
+		t.Fatalf("template without {link}: %d %s", rr.Code, rr.Body)
+	}
+	rr = e.do("PUT", "/api/captain/settings", `{"commentTemplate":"{captain} shipped {project} {version} with {credited}. Tap {link}","draftNotes":"Mention the Discord."}`, nil, mine)
+	v = decode(t, rr)
+	if rr.Code != 200 || v["draftNotes"] != "Mention the Discord." || !strings.Contains(v["preview"].(string), "you shipped rocket v2.4.0") || !strings.Contains(v["preview"].(string), "Nothing posts without your tap") {
+		t.Fatalf("save: %d %s", rr.Code, rr.Body)
+	}
+	// A later save of one field keeps the other.
+	rr = e.do("PUT", "/api/captain/settings", `{"draftNotes":""}`, nil, mine)
+	v = decode(t, rr)
+	if rr.Code != 200 || v["draftNotes"] != "" || !strings.HasPrefix(v["commentTemplate"].(string), "{captain} shipped") {
+		t.Fatalf("partial save: %d %s", rr.Code, rr.Body)
+	}
+	// Another captain sees their own defaults, not these.
+	if rr := e.do("GET", "/api/captain/settings", "", nil, theirs); rr.Code != 200 || decode(t, rr)["commentTemplate"] != "" {
+		t.Fatalf("other captain: %d %s", rr.Code, rr.Body)
 	}
 }

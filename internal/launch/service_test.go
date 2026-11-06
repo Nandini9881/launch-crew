@@ -57,6 +57,8 @@ type env struct {
 
 	mu      sync.Mutex
 	presets []cards.Preset
+	// rendered is every card drawn, in order.
+	rendered []any
 }
 
 func ghID() int64 { return 4_000_000_000 + int64(uuid.New().ID()) }
@@ -153,9 +155,10 @@ func setup(t *testing.T) *env {
 	e.deps = launch.Deps{
 		Q: q, Pool: pool, Buffer: bc, GitHub: ghc,
 		Cards: cards.NewUploader(e.r2.URL, "cards", "ak", "sk", "https://cdn.example"),
-		Render: func(_ any, p cards.Preset) ([]byte, error) {
+		Render: func(c any, p cards.Preset) ([]byte, error) {
 			e.mu.Lock()
 			e.presets = append(e.presets, p)
+			e.rendered = append(e.rendered, c)
 			e.mu.Unlock()
 			return tiny, nil
 		},
@@ -515,7 +518,7 @@ func TestCloseWindowAndPollMarkPosted(t *testing.T) {
 		}
 	}
 	e.buf.Handle("GetPostsCreatedBetween", map[string]any{"posts": map[string]any{"edges": []any{
-		map[string]any{"node": map[string]any{"id": "p-sent", "channelId": "a-x", "text": "hi", "status": "sent", "createdAt": time.Now().Format(time.RFC3339)}},
+		map[string]any{"node": map[string]any{"id": "p-sent", "channelId": "a-x", "text": "hi", "status": "sent", "externalLink": "https://x.com/alice/status/9", "createdAt": time.Now().Format(time.RFC3339)}},
 		map[string]any{"node": map[string]any{"id": "p-err", "channelId": "a-bsky", "text": "hi", "status": "error", "createdAt": time.Now().Format(time.RFC3339)}},
 	}}})
 
@@ -539,6 +542,24 @@ func TestCloseWindowAndPollMarkPosted(t *testing.T) {
 	}
 	if a := e.member(t, e.alice.ID); a.State != "posted" {
 		t.Fatalf("alice %s, want posted", a.State)
+	}
+	// The captain's crew row links to the sent post and names the failed one.
+	v, err := launch.Detail(e.ctx, e.deps, e.launch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alice launch.CrewRow
+	for _, r := range v.Crew {
+		if r.ID == e.alice.ID {
+			alice = r
+		}
+	}
+	links := map[string]string{}
+	for _, p := range alice.Posts {
+		links[p.Status] = p.ExternalLink
+	}
+	if len(alice.Posts) != 2 || links["posted"] != "https://x.com/alice/status/9" || links["failed_in_buffer"] != "" {
+		t.Fatalf("alice's posts %+v", alice.Posts)
 	}
 	// Closing again is a no-op; a deleted launch is never reopened.
 	if err := launch.CloseWindowHandler(e.deps)(e.ctx, jobs.Job{Kind: jobs.CloseWindow, Payload: payload}); err != nil {
@@ -1105,5 +1126,30 @@ func TestLateLaunchJobQueuesCaptainPosts(t *testing.T) {
 		if d.Status != "queued" || d.BufferPostID.String != "post-1" || !strings.Contains(d.Note, "queue") {
 			t.Fatalf("captain draft %s: %s %q note=%q", d.ChannelID, d.Status, d.BufferPostID.String, d.Note)
 		}
+	}
+}
+
+func TestCommentUsesTheCaptainsTemplate(t *testing.T) {
+	e := setup(t)
+	tmpl := "{captain} just cut {project} {version}, thanks for {credited}. Tap {link}"
+	if _, err := launch.SaveSettings(e.ctx, e.deps, e.owner.ID, launch.SettingsPatch{CommentTemplate: &tmpl}); err != nil {
+		t.Fatal(err)
+	}
+	if err := launch.Launch(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.drain(t); err != nil {
+		t.Fatal(err)
+	}
+	cs := e.gh.IssueComments(int(e.alice.PrNumber.Int32))
+	if len(cs) != 1 {
+		t.Fatalf("comments on alice's PR: %+v", cs)
+	}
+	body := cs[0].Body
+	if !strings.HasPrefix(body, "captain just cut rocket v1.2.0, thanks for your PR") || !strings.Contains(body, "Tap https://lc.test/s/") {
+		t.Fatalf("body does not follow the template:\n%s", body)
+	}
+	if !strings.Contains(body, "Nothing posts without your tap") || !strings.Contains(body, "Opt out or delete your data: https://lc.test/settings?token=") {
+		t.Fatalf("body lost the consent footer:\n%s", body)
 	}
 }

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import Button from '../components/Button'
-import type { CrewRow, Detail } from '../api'
+import Icon from '../components/Icon'
+import IconButton from '../components/IconButton'
+import ServiceIcon from '../components/ServiceIcon'
+import { serviceName } from '../crew/format'
+import type { CrewPost, CrewRow, Detail } from '../api'
 import { copy, initials, stateTone } from './format'
 
 type Props = {
@@ -14,7 +17,7 @@ const pickable = (c: CrewRow) => c.state === 'suggested' || c.state === 'ticked'
 
 // Copies the link; when the clipboard is blocked it selects the field with the link
 // (the one passed in, or its own read-only one) and says "Select and copy" instead.
-function CopyLink({ url, label, field }: { url: string; label: string; field?: RefObject<HTMLInputElement | null> }) {
+export function CopyLink({ url, label, field }: { url: string; label: string; field?: RefObject<HTMLInputElement | null> }) {
   const [state, setState] = useState<'idle' | 'copied' | 'manual'>('idle')
   const own = useRef<HTMLInputElement>(null)
 
@@ -25,15 +28,51 @@ function CopyLink({ url, label, field }: { url: string; label: string; field?: R
     el?.select()
   }, [state, field])
 
+  useEffect(() => {
+    if (state !== 'copied') return
+    const t = window.setTimeout(() => setState('idle'), 2500)
+    return () => window.clearTimeout(t)
+  }, [state])
+
   return (
     <>
-      <Button variant="secondary" onClick={async () => setState((await copy(url)) ? 'copied' : 'manual')}>
-        {state === 'copied' ? 'Copied' : state === 'manual' ? 'Select and copy' : label}
-      </Button>
+      <IconButton
+        icon={state === 'copied' ? 'check' : 'copy'}
+        tone={state === 'copied' ? 'accent' : 'default'}
+        label={state === 'copied' ? 'Copied' : state === 'manual' ? 'Select and copy' : label}
+        onClick={async () => setState((await copy(url)) ? 'copied' : 'manual')}
+      />
       {state === 'manual' && !field && (
         <input ref={own} className="field cap-mono-field" readOnly value={url} aria-label="Invite link" onFocus={(e) => e.currentTarget.select()} />
       )}
     </>
+  )
+}
+
+const postWord = (p: CrewPost) =>
+  p.status === 'posted' ? 'posted' : p.status === 'queued' ? 'queued' : p.status === 'draft' ? 'draft' : 'failed in Buffer'
+
+// Where a crew member's posts are: a link to each one on its network once sent, else its state.
+function CrewPosts({ posts, name }: { posts: CrewPost[]; name: string }) {
+  if (posts.length === 0) return null
+  return (
+    <ul className="cap-crew-posts" aria-label={`Posts by ${name}`}>
+      {posts.map((p, i) => (
+        <li key={`${p.network}-${i}`}>
+          {p.status === 'posted' && p.externalLink ? (
+            <a className="cap-link" href={p.externalLink} target="_blank" rel="noopener noreferrer">
+              <ServiceIcon service={p.network} />
+              View on {serviceName(p.network)}
+            </a>
+          ) : (
+            <span className={p.status === 'failed_in_buffer' ? 'cap-crew-post cap-err' : 'cap-crew-post cap-muted'}>
+              <ServiceIcon service={p.network} />
+              {serviceName(p.network)} · {postWord(p)}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -83,6 +122,17 @@ export default function Crew({ detail, pending, onTicked, onRetryComment }: Prop
             ) : (
               <span className={`cap-state cap-state-${stateTone(c.state)}`}>{c.state.replaceAll('_', ' ')}</span>
             )}
+            <CrewPosts posts={c.posts ?? []} name={c.name} />
+            {c.cardUrl && (
+              <details className="cap-card-fold cap-crew-card">
+                <summary className="cap-card-summary">
+                  <Icon name="eye" />
+                  <span>Card</span>
+                  <Icon name="chevron" className="cap-card-chevron" />
+                </summary>
+                <img className="cap-card-img" src={c.cardUrl} alt={`Contributor card for ${c.name}`} loading="lazy" />
+              </details>
+            )}
             {c.commentFailed && (
               <div className="cap-crew-fail">
                 <p className="cap-muted">
@@ -90,10 +140,7 @@ export default function Crew({ detail, pending, onTicked, onRetryComment }: Prop
                 </p>
                 <span className="cap-crew-fail-actions">
                   {c.commentRetriesLeft > 0 ? (
-                    <Button variant="secondary" disabled={pending} onClick={() => onRetryComment(c.id)}>
-                      Retry comment{' '}
-                      <span className="visually-hidden">for {c.name}</span>
-                    </Button>
+                    <IconButton icon="refresh" label={`Retry comment for ${c.name}`} disabled={pending} onClick={() => onRetryComment(c.id)} />
                   ) : (
                     <span className="cap-muted">Retried the most times allowed.</span>
                   )}

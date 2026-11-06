@@ -163,7 +163,7 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 	at := s.l.LaunchAt.Time
 	in := buffer.CreatePostInput{
 		ChannelID: ch.ID, Text: cd.Text, Mode: "customScheduled", DueAt: &at,
-		FirstComment: cd.FirstComment.String,
+		FirstComment: cd.FirstComment.String, Notification: buffer.RemindersOnly(ch),
 	}
 	note := ""
 	if !at.After(d.now()) {
@@ -190,7 +190,7 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 	case err == nil && res.SavedAsDraft:
 		return setCaptainDraft(wctx, d, cd.ID, draftDraft, res.PostID, res.Note)
 	case err == nil:
-		return setCaptainDraft(wctx, d, cd.ID, draftQueued, res.PostID, note)
+		return setCaptainDraft(wctx, d, cd.ID, draftQueued, res.PostID, joinNotes(res.Note, note))
 	case errors.Is(err, buffer.ErrNeedsReconnect):
 		_ = setCaptainDraft(wctx, d, cd.ID, draftDraft, "", "")
 		return err
@@ -221,6 +221,17 @@ func adoptCaptainPost(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 		}
 	}
 	return false, nil
+}
+
+// joinNotes reads two captain-facing notes as one sentence pair.
+func joinNotes(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "; " + b
 }
 
 func setCaptainDraft(ctx context.Context, d Deps, id uuid.UUID, status, postID, note string) error {
@@ -359,13 +370,26 @@ func contributorCard(ctx context.Context, d Deps, s *state, m sqlc.CrewMember) (
 	preset := cards.PresetFor(s.l.ID)
 	prs := trigger.MemberPRs(ctx, d.Pool, m.ID, m.PrNumber.Int32, m.PrTitle.String)
 	var first trigger.PRRef
-	if len(prs) > 0 {
-		first = prs[0]
+	added, deleted := 0, 0
+	for i, p := range prs {
+		if i == 0 {
+			first = p
+		}
+		added, deleted = added+p.Added, deleted+p.Deleted
 	}
+	login := s.login(ctx, d, m.GithubUserID.Int64)
+	lines, more := s.releaseLines()
 	png, err := d.render()(cards.ContributorCard{
-		Name:      s.login(ctx, d, m.GithubUserID.Int64),
+		Name:      s.displayName(ctx, d, m, login),
+		Handle:    login,
+		Role:      titleCase(m.Role),
 		AvatarURL: fmt.Sprintf("https://avatars.githubusercontent.com/u/%d?s=256", m.GithubUserID.Int64),
-		Project:   s.project, Version: s.version(), PRTitle: first.Title, PRCount: len(prs),
+		Project:   s.project, Version: s.version(), PRTitle: first.Title, PRNumber: first.Number, PRCount: len(prs),
+		Added: added, Deleted: deleted,
+		Release: lines, ReleaseMore: more,
+		CrewCount: s.crewSize(),
+		Date:      d.now(),
+		Brand:     s.brand(),
 	}, preset)
 	if err != nil {
 		return m, fmt.Errorf("render card for %s: %w", m.ID, err)

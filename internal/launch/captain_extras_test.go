@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/shubham-tomar/launchcrew/internal/cards"
 	"github.com/shubham-tomar/launchcrew/internal/crew"
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
 	"github.com/shubham-tomar/launchcrew/internal/launch"
@@ -271,3 +272,117 @@ func TestListSummaryCarriesRepoAndCrew(t *testing.T) {
 }
 
 func uuidNull(id uuid.UUID) uuid.NullUUID { return uuid.NullUUID{UUID: id, Valid: true} }
+
+func TestRepoBrandingReachesTheContributorCard(t *testing.T) {
+	e := setup(t)
+	img := onePixelPNG(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(img)
+	}))
+	defer srv.Close()
+	e.deps.AllowLoopback = true
+
+	str := func(s string) *string { return &s }
+	// Bad and too-dark accents are refused with a reason; nothing is stored.
+	for _, a := range []string{"blue", "#111111"} {
+		if _, err := launch.UpdateRepo(e.ctx, e.deps, e.owner.ID, e.repo.ID, launch.RepoPatch{Accent: str(a)}); !errors.Is(err, launch.ErrInvalid) {
+			t.Fatalf("accent %q: %v, want invalid", a, err)
+		}
+	}
+	if _, err := launch.UpdateRepo(e.ctx, e.deps, e.owner.ID, e.repo.ID, launch.RepoPatch{LogoURL: str("ftp://x/y.png")}); !errors.Is(err, launch.ErrInvalid) {
+		t.Fatalf("ftp logo: %v, want invalid", err)
+	}
+	// Someone else's repo is not found.
+	if _, err := launch.UpdateRepo(e.ctx, e.deps, uuid.New(), e.repo.ID, launch.RepoPatch{Accent: str("#58D3AE")}); !errors.Is(err, launch.ErrNotFound) {
+		t.Fatalf("stranger: %v", err)
+	}
+
+	r, err := launch.UpdateRepo(e.ctx, e.deps, e.owner.ID, e.repo.ID, launch.RepoPatch{LogoURL: str(srv.URL + "/logo.png"), Accent: str("#58d3ae")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Accent != "#58D3AE" || r.LogoURL != srv.URL+"/logo.png" || !r.Enabled {
+		t.Fatalf("repo after branding: %+v", r)
+	}
+	row, _ := e.q.GetRepo(e.ctx, e.repo.ID)
+	if len(row.LogoPng) == 0 {
+		t.Fatal("logo not stored")
+	}
+
+	if err := launch.Launch(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.drain(t); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var got *cards.ContributorCard
+	for _, c := range e.rendered {
+		if cc, ok := c.(cards.ContributorCard); ok {
+			got = &cc
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("no contributor card rendered: %v", e.rendered)
+	}
+	if got.Brand.Owner != "acme" || got.Brand.Accent != "#58D3AE" || got.Brand.Logo == nil || got.Brand.LogoURL != "" {
+		t.Fatalf("brand %+v", got.Brand)
+	}
+	if got.Handle == "" || got.Name == "" || got.CrewCount == 0 || len(got.Release) == 0 || got.Date.IsZero() {
+		t.Fatalf("card %+v", got)
+	}
+
+	// The launch page links the release card and each invited member's card.
+	e.mu.Unlock()
+	v, err := launch.Detail(e.ctx, e.deps, e.launch.ID)
+	e.mu.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(v.CardURL, "https://cdn.example/cards/") {
+		t.Fatalf("release card url %q", v.CardURL)
+	}
+	withCard := 0
+	for _, r := range v.Crew {
+		if r.CardURL != "" {
+			withCard++
+		}
+	}
+	if withCard == 0 {
+		t.Fatalf("no crew card urls: %+v", v.Crew)
+	}
+
+	// A preview draws unsaved branding and stores nothing; a bad accent is refused.
+	e.rendered = nil
+	e.mu.Unlock()
+	png, err := launch.RepoCardPreview(e.ctx, e.deps, e.owner.ID, e.repo.ID, launch.RepoPatch{Accent: str("#D9A520")})
+	_, badErr := launch.RepoCardPreview(e.ctx, e.deps, e.owner.ID, e.repo.ID, launch.RepoPatch{Accent: str("#000000")})
+	_, strangerErr := launch.RepoCardPreview(e.ctx, e.deps, uuid.New(), e.repo.ID, launch.RepoPatch{})
+	e.mu.Lock()
+	if err != nil || len(png) == 0 {
+		t.Fatalf("preview: %v", err)
+	}
+	if !errors.Is(badErr, launch.ErrInvalid) || !errors.Is(strangerErr, launch.ErrNotFound) {
+		t.Fatalf("bad accent %v, stranger %v", badErr, strangerErr)
+	}
+	pc, ok := e.rendered[0].(cards.ContributorCard)
+	if !ok || pc.Brand.Accent != "#D9A520" || pc.Brand.Logo == nil || pc.Project != "rocket" || len(pc.Release) == 0 || pc.Release[0].Title != "Faster boosters" {
+		t.Fatalf("preview card %+v", e.rendered[0])
+	}
+	if row, _ := e.q.GetRepo(e.ctx, e.repo.ID); row.Accent != "#58D3AE" {
+		t.Fatalf("preview saved the accent: %s", row.Accent)
+	}
+
+	// Clearing the logo falls back to the owner's GitHub avatar.
+	if _, err := launch.UpdateRepo(e.ctx, e.deps, e.owner.ID, e.repo.ID, launch.RepoPatch{LogoURL: str("")}); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = e.q.GetRepo(e.ctx, e.repo.ID)
+	b := cards.RepoBrand(row.FullName, row.LogoPng, row.Accent)
+	if b.Logo != nil || b.LogoURL != "https://github.com/acme.png?size=208" {
+		t.Fatalf("fallback brand %+v", b)
+	}
+}

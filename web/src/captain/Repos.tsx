@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { listRepos, patchRepo, type ApiError, type Repo } from '../api'
+import CardBrand from './CardBrand'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
-import Loader from '../components/Loader'
+import { SkeletonPanel } from '../components/Skeleton'
 import Frame from './Frame'
 import { asError } from './format'
 import './repos.css'
@@ -109,8 +110,10 @@ export default function Repos() {
       )}
       {!repos ? (
         !error && (
-          <div aria-busy="true">
-            <Loader label="Loading your repos" />
+          <div role="status" aria-busy="true" className="rp-list">
+            <span className="visually-hidden">Loading your repos</span>
+            <SkeletonPanel lines={1} />
+            <SkeletonPanel lines={1} />
           </div>
         )
       ) : repos.length === 0 ? (
@@ -143,6 +146,7 @@ export default function Repos() {
                   onChange={(v) => toggle(r, { allowPrerelease: v })}
                 />
               </span>
+              <CardBrand repo={r} onSaved={(next) => setRepos((rs) => rs?.map((x) => (x.id === next.id ? next : x)))} />
               {rowError[r.id] && (
                 <span className="rp-row-error" role="alert">
                   {rowError[r.id]} Try again.

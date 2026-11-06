@@ -196,6 +196,8 @@ export type LaunchSummary = {
   crewTotal: number
   /** Initials of up to 5 crew members, for the avatar stack. */
   crewInitials: string[]
+  /** The captain's own name: their GitHub login, else the repo owner, else ''. */
+  captainName: string
 }
 
 export type Pr = { prNumber: number; title: string; authorLogin: string; hidden: boolean }
@@ -208,7 +210,11 @@ export type CaptainDraft = {
   status: 'draft' | 'sending' | 'queued' | 'posted' | 'failed' | 'skipped'
   bufferPostId: string
   note: string
+  /** The post's URL on the network once it was sent. */
+  externalLink?: string
 }
+/** One post a crew member has in their Buffer for this launch. */
+export type CrewPost = { network: string; status: string; externalLink: string }
 export type CrewRow = {
   id: string
   name: string
@@ -218,6 +224,9 @@ export type CrewRow = {
   commentFailed: boolean
   commentRetriesLeft: number
   inviteUrl?: string
+  /** Their contributor card, once the launch drew it. */
+  cardUrl?: string
+  posts?: CrewPost[]
 }
 export type Check = { id: number; name: string; ok: boolean; fix: string }
 export type DeadLetter = { jobId: number; kind: string; lastError: string; attempts: number }
@@ -251,6 +260,8 @@ export type Detail = {
   /** QR centre mark on the show slide and PNG: the plane, nothing, or the captain's own image. */
   qrLogo: QrLogo
   qrLogoUrl: string
+  /** The release card, attached to the captain's posts when there is no hero image. */
+  cardUrl?: string
 }
 export type QrLogo = 'plane' | 'none' | 'custom'
 
@@ -278,7 +289,10 @@ export type Patch = {
   tickedCrew?: string[]
 }
 
-export type Repo = { id: string; fullName: string; enabled: boolean; allowPrerelease: boolean }
+/** logoUrl and accent brand the repo's cards; empty means the owner's GitHub avatar and the default accent. */
+export type Repo = { id: string; fullName: string; enabled: boolean; allowPrerelease: boolean; logoUrl: string; accent: string }
+
+export type RepoPatch = { enabled?: boolean; allowPrerelease?: boolean; logoUrl?: string; accent?: string }
 
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
@@ -319,7 +333,29 @@ export const retryComment = (id: string, memberId: string) =>
 export const refreshChannels = (id: string) =>
   captain<{ channels: number }>(`/launches/${lid(id)}/channels/refresh`, json('POST'))
 export const listRepos = () => captain<Repo[]>('/repos')
-export const patchRepo = (id: string, p: { enabled?: boolean; allowPrerelease?: boolean }) =>
+
+/** The captain's templates: the PR comment wording and notes for the model. Empty means the default. */
+export type CaptainSettings = {
+  commentTemplate: string
+  draftNotes: string
+  defaultComment: string
+  placeholders: string[]
+  preview: string
+  maxCommentLen: number
+  maxNotesLen: number
+}
+export const getSettings = () => captain<CaptainSettings>('/settings')
+export const saveSettings = (p: { commentTemplate?: string; draftNotes?: string }) => captain<CaptainSettings>('/settings', json('PUT', p))
+
+// Where a post lives in the Buffer app: the channel's queue, drafts or sent list.
+export const bufferChannelUrl = (channelId: string, status: string) => {
+  const tab = status === 'posted' ? 'sent' : status === 'draft' ? 'drafts' : 'queue'
+  return `https://publish.buffer.com/channels/${encodeURIComponent(channelId)}/${tab}`
+}
+/** Draws a sample card with unsaved branding; png is a data URL. */
+export const previewRepoCard = (id: string, p: { logoUrl: string; accent: string }) =>
+  captain<{ png: string }>(`/repos/${lid(id)}/card-preview`, json('POST', p))
+export const patchRepo = (id: string, p: RepoPatch) =>
   captain<Repo>(`/repos/${lid(id)}`, json('PATCH', p))
 
 export type Me = {
