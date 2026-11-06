@@ -582,3 +582,58 @@ func TestAuditRowPerCall(t *testing.T) {
 		t.Fatalf("rows = %q, want %q", got, want)
 	}
 }
+
+func TestConfigurationFallbackIsCached(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	gqlErr := bufferfake.Response{Errors: []map[string]any{{
+		"message": "configuration is not available", "extensions": map[string]any{"code": "INTERNAL_SERVER_ERROR"},
+	}}}
+	e.fake.Script("GetConfiguration", gqlErr, gqlErr)
+	for range 2 {
+		cfg, err := e.c.Configuration(ctx, e.connID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cfg.Fallback || cfg.Services["twitter"].MaxChars != 280 {
+			t.Fatalf("config = %+v, want the built-in fallback", cfg)
+		}
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 1 {
+		t.Fatalf("requests = %d, want 1 (fallback cached)", n)
+	}
+	// The fallback is retried sooner than a real answer would be.
+	e.clock.Advance(16 * time.Minute)
+	if _, err := e.c.Configuration(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 2 {
+		t.Fatalf("requests after 16m = %d, want 2", n)
+	}
+	// A real answer replaces it and is kept for the full hour.
+	e.fake.Handle("GetConfiguration", map[string]any{"configuration": map[string]any{"services": []any{
+		map[string]any{"service": "twitter", "content": []any{map[string]any{
+			"configurationContentTypes": []string{"post"}, "supportedProperties": []string{"thread", "image"},
+			"rules": []any{map[string]any{"__typename": "LengthRule", "property": "text", "maxLength": 4000}},
+		}}},
+	}}})
+	e.clock.Advance(16 * time.Minute)
+	cfg, err := e.c.Configuration(ctx, e.connID)
+	if err != nil || cfg.Fallback || cfg.Services["twitter"].MaxChars != 4000 {
+		t.Fatalf("config = %+v, %v", cfg, err)
+	}
+	e.clock.Advance(30 * time.Minute)
+	if _, err := e.c.Configuration(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 3 {
+		t.Fatalf("requests 30m after a real answer = %d, want 3", n)
+	}
+	e.clock.Advance(31 * time.Minute)
+	if _, err := e.c.Configuration(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetConfiguration"); n != 4 {
+		t.Fatalf("requests after the hour = %d, want 4", n)
+	}
+}

@@ -30,8 +30,11 @@ type ServiceRules struct {
 }
 
 // Config holds rules keyed by lowercase Buffer service name (twitter, bluesky, ...).
+// Fallback is set when Buffer's configuration query failed and the rules are
+// the built-in table; such a config is cached for fallbackTTL, not cacheTTL.
 type Config struct {
 	Services map[string]ServiceRules
+	Fallback bool `json:",omitempty"`
 }
 
 // Post is a Buffer post.
@@ -68,7 +71,11 @@ type Limit struct {
 }
 
 func (c *Client) fresh(at pgtype.Timestamptz) bool {
-	return at.Valid && c.now().Sub(at.Time) < cacheTTL
+	return c.freshFor(at, cacheTTL)
+}
+
+func (c *Client) freshFor(at pgtype.Timestamptz, ttl time.Duration) bool {
+	return at.Valid && c.now().Sub(at.Time) < ttl
 }
 
 func orgID(conn sqlc.BufferConnection) (string, error) {
@@ -178,16 +185,23 @@ type serviceConfig struct {
 
 // Configuration returns per-service post rules, cached on the connection for 1 h.
 // If Buffer's (experimental) configuration query errors, it returns the
-// built-in table uncached.
+// built-in table, cached for 15 min so callers do not retry Buffer on every
+// page load.
 func (c *Client) Configuration(ctx context.Context, connID uuid.UUID) (Config, error) {
 	conn, err := c.q.GetBufferConnection(ctx, connID)
 	if err != nil {
 		return Config{}, fmt.Errorf("buffer: load connection: %w", err)
 	}
-	if c.fresh(conn.ConfigCachedAt) && conn.ConfigJson != nil {
+	if conn.ConfigJson != nil {
 		var cfg Config
 		if err := json.Unmarshal(conn.ConfigJson, &cfg); err == nil {
-			return cfg, nil
+			ttl := cacheTTL
+			if cfg.Fallback {
+				ttl = fallbackTTL
+			}
+			if c.freshFor(conn.ConfigCachedAt, ttl) {
+				return cfg, nil
+			}
 		}
 	}
 	org, err := orgID(conn)
@@ -198,15 +212,18 @@ func (c *Client) Configuration(ctx context.Context, connID uuid.UUID) (Config, e
 		Configuration struct{ Services []serviceConfig }
 	}
 	err = c.Do(ctx, connID, qConfiguration, map[string]any{"organizationId": org}, &out)
+	var cfg Config
 	var gqlErr *GraphQLError
-	if errors.As(err, &gqlErr) {
+	switch {
+	case errors.As(err, &gqlErr):
 		log.Printf("buffer: configuration unavailable, using built-in rules: %v", err)
-		return buildConfig(nil), nil
-	}
-	if err != nil {
+		cfg = buildConfig(nil)
+		cfg.Fallback = true
+	case err != nil:
 		return Config{}, err
+	default:
+		cfg = buildConfig(out.Configuration.Services)
 	}
-	cfg := buildConfig(out.Configuration.Services)
 	c.saveCache(ctx, connID, cfg, func(b []byte, at pgtype.Timestamptz) error {
 		return c.q.UpdateConnectionConfigCache(ctx, sqlc.UpdateConnectionConfigCacheParams{ID: connID, ConfigJson: b, ConfigCachedAt: at})
 	})

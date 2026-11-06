@@ -39,6 +39,7 @@ const (
 	refreshSkew  = 60 * time.Second
 	maxWait      = 15 * time.Minute // never sleep past one budget window
 	cacheTTL     = time.Hour
+	fallbackTTL  = 15 * time.Minute // built-in rules kept while Buffer's configuration query fails
 	refreshFloor = 15 * time.Second // RefreshChannels reuses a cache younger than this
 	refreshLimit = 30 * time.Second
 	maxPage      = 100
