@@ -90,7 +90,7 @@ func VoicedDraftsHandler(d Deps) jobs.Handler {
 			}
 			n := drafting.Network(dr.Network)
 			res, err := d.drafter().DraftFor(ctx, drafting.DraftRequest{
-				Subject: subject(info, m), Voice: &voice, Hook: drafting.AssignHook(hooks),
+				Subject: subject(ctx, d, info, m), Voice: &voice, Hook: drafting.AssignHook(hooks),
 				Network: n, Rules: drafting.RulesFor(n, cfg), AllowModel: true, Avoid: head(r, avoidInPrompt),
 			}, r)
 			if err != nil {
@@ -144,8 +144,10 @@ func voiceFor(ctx context.Context, d Deps, m sqlc.CrewMember, conn sqlc.BufferCo
 		posts = nil
 	}
 	var prText []string
-	if m.PrTitle.Valid {
-		prText = []string{m.PrTitle.String}
+	for _, p := range memberPRs(ctx, d, m) {
+		if p.Title != "" {
+			prText = append(prText, p.Title)
+		}
 	}
 	p, source := drafting.DeriveVoice(posts, prText)
 	raw, err := json.Marshal(p)

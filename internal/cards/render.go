@@ -38,11 +38,12 @@ const (
 var HTTPClient = &http.Client{Timeout: 3 * time.Second}
 
 // ContributorCard is the card for one contributor's merged PR. Handle, Role,
-// PRNumber, CrewCount, Date and Hero are optional.
+// PRNumber, PRCount, CrewCount, Date and Hero are optional. PRCount is how many
+// PRs the person has in the release; PRTitle is the first of them.
 type ContributorCard struct {
 	Name, AvatarURL, Project, Version, PRTitle string
 	Handle, Role                               string
-	PRNumber, CrewCount                        int
+	PRNumber, PRCount, CrewCount               int
 	Date                                       time.Time
 	Hero                                       image.Image
 }
@@ -65,9 +66,11 @@ func setHex(dc *gg.Context, h string) { dc.SetColor(hexColor(h)) }
 // pass is what both card kinds reduce to before drawing.
 type pass struct {
 	eyebrow, title, meta, detail, repo string
-	stubLabel, stubValue, stubDate     string
-	avatarURL                          string
-	hero                               image.Image
+	// more is "and N more", kept on its own line under a clipped detail.
+	more                           string
+	stubLabel, stubValue, stubDate string
+	avatarURL                      string
+	hero                           image.Image
 }
 
 // Render draws a 1200x630 PNG boarding pass for a ContributorCard or ReleaseCard.
@@ -81,7 +84,11 @@ func Render(c any, p Preset) ([]byte, error) {
 	case ContributorCard:
 		d.title = titleText(fs.display, v.Name, "Contributor")
 		d.avatarURL, d.hero = v.AvatarURL, v.Hero
-		d.eyebrow = joinDot(v.Version, prRef(v.PRNumber))
+		ref := prRef(v.PRNumber)
+		if v.PRCount > 1 {
+			ref = strconv.Itoa(v.PRCount) + " PRs"
+		}
+		d.eyebrow = joinDot(v.Version, ref)
 		if d.eyebrow == "" {
 			d.eyebrow = v.Project
 		}
@@ -95,6 +102,9 @@ func Render(c any, p Preset) ([]byte, error) {
 		}
 		d.meta = joinDot(handle, role)
 		d.detail = v.PRTitle
+		if v.PRCount > 1 && strings.TrimSpace(v.PRTitle) != "" {
+			d.more = "and " + strconv.Itoa(v.PRCount-1) + " more"
+		}
 		d.repo = v.Project
 		d.stubLabel, d.stubValue, d.stubDate = stubText(v.CrewCount, v.Version, v.Date)
 	case ReleaseCard:
@@ -151,7 +161,11 @@ func Render(c any, p Preset) ([]byte, error) {
 	dc.SetFontFace(bf)
 	setHex(dc, blend(p.Type, p.Field, 0.9))
 	if detail := keepGlyphs(fs.body, d.detail); detail != "" {
-		for _, l := range wrap(bf, detail, textW, 2) {
+		lines := wrap(bf, detail, textW, 2)
+		if d.more != "" { // first title on one line, then "and N more"
+			lines = append(wrap(bf, detail, textW, 1), d.more)
+		}
+		for _, l := range lines {
 			dc.DrawString(l, pad, y+26)
 			y += 44
 		}

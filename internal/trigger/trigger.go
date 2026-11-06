@@ -30,7 +30,16 @@ type CrewSuggestion struct {
 	AvatarURL    string
 	PRNumber     int
 	PRTitle      string
-	Ticked       bool
+	// PRs is every PR the person has in the release, newest first. PRNumber and
+	// PRTitle are the first of them, the one the comment goes on.
+	PRs    []PRRef
+	Ticked bool
+}
+
+// PRRef names one PR.
+type PRRef struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
 }
 
 // LaunchSpec is what a trigger produces: everything needed to save a draft launch.

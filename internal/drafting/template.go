@@ -2,6 +2,7 @@ package drafting
 
 import (
 	"context"
+	"strconv"
 	"strings"
 )
 
@@ -36,7 +37,9 @@ func templateText(s Subject, h HookType) string {
 		}
 	case HookDetail:
 		parts = []string{rel + " is out.", orElse(sentence(s.Headline), "Release notes are linked below.")}
-		if s.PRTitle != "" && !sameLine(s.PRTitle, s.Headline) {
+		if len(s.PRTitles) > 1 {
+			parts = append(parts, "A few changes in it: "+titleList(s.PRTitles)+".")
+		} else if s.PRTitle != "" && !sameLine(s.PRTitle, s.Headline) {
 			parts = append(parts, "One change in it: "+stripEnd(s.PRTitle)+".")
 		}
 	case HookReaction:
@@ -65,6 +68,8 @@ func templateText(s Subject, h HookType) string {
 
 func personal(s Subject, rel string) string {
 	switch {
+	case len(s.PRTitles) > 1:
+		return "I had a hand in " + rel + ": " + titleList(s.PRTitles) + "."
 	case s.PRTitle != "":
 		return "I had a hand in " + rel + ": " + stripEnd(s.PRTitle) + "."
 	case s.TalkTitle != "":
@@ -95,6 +100,28 @@ func lowerFirst(s string) string {
 	}
 	r[0] = []rune(strings.ToLower(string(r[0])))[0]
 	return string(r)
+}
+
+// titleList joins up to three titles as "A, B and C", with "and N more" beyond that.
+func titleList(titles []string) string {
+	var shown []string
+	for _, t := range titles {
+		if t = stripEnd(t); t != "" {
+			shown = append(shown, t)
+		}
+	}
+	more := 0
+	if len(shown) > 3 {
+		more = len(shown) - 3
+		shown = shown[:3]
+	}
+	switch {
+	case more > 0:
+		return strings.Join(shown, ", ") + " and " + strconv.Itoa(more) + " more"
+	case len(shown) > 1:
+		return strings.Join(shown[:len(shown)-1], ", ") + " and " + shown[len(shown)-1]
+	}
+	return strings.Join(shown, "")
 }
 
 // sameLine reports whether two fields read as the same sentence.

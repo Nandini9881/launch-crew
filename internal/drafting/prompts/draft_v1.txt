@@ -30,7 +30,10 @@ What the post is about:
 - Version: {{.Version}}{{end}}
 {{- if .Headline}}
 - Headline change: {{.Headline}}{{end}}
-{{- if .PRTitle}}
+{{- if gt (len .PRTitles) 1}}
+- Pull requests ({{len .PRTitles}}, newest first):{{range .PRTitles}}
+  - {{.}}{{end}}
+{{- else if .PRTitle}}
 - Pull request: {{.PRTitle}}{{end}}
 {{- if .Role}}
 - Their role: {{.Role}}{{end}}

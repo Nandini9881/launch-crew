@@ -104,6 +104,9 @@ func toPR(p *gh.PullRequest) drafting.PR {
 		Added:   p.GetAdditions(),
 		Deleted: p.GetDeletions(),
 	}
+	if t := p.GetMergedAt(); !t.IsZero() {
+		pr.MergedAt = t.Time
+	}
 	for _, l := range p.Labels {
 		if l != nil {
 			pr.Labels = append(pr.Labels, l.Name)

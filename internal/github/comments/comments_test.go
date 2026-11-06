@@ -36,7 +36,7 @@ func words(s string) int {
 }
 
 func TestCommentBodyUnder60WordsWithConsentSentence(t *testing.T) {
-	got := comments.Body("captain", "rocket", "v2.4.0", "Split-pane resize with keyboard",
+	got := comments.Body("captain", "rocket", "v2.4.0", []comments.PR{{Number: 42, Title: "Split-pane resize with keyboard"}},
 		"https://launchcrew.example/s/abc", "https://launchcrew.example/settings")
 	want := "**@captain** launched **rocket v2.4.0** and credited your PR, *Split-pane resize with keyboard*.\n\n" +
 		"[Share your contribution](https://launchcrew.example/s/abc)\n\n" +
@@ -51,13 +51,40 @@ func TestCommentBodyUnder60WordsWithConsentSentence(t *testing.T) {
 	if n := words(got); n >= 60 {
 		t.Fatalf("%d words, want < 60", n)
 	}
-	long := comments.Body("captain", "rocket", "v2.4.0", strings.Repeat("very ", 80)+"long title",
+	long := comments.Body("captain", "rocket", "v2.4.0", []comments.PR{{Number: 1, Title: strings.Repeat("very ", 80) + "long title"}},
 		"https://l.example/s/x", "https://l.example/settings")
 	if n := words(long); n >= 60 {
 		t.Fatalf("long title: %d words, want < 60", n)
 	}
 	if !strings.Contains(long, comments.ConsentSentence) {
 		t.Fatal("long title: consent sentence missing")
+	}
+}
+
+func TestCommentBodyManyPRs(t *testing.T) {
+	prs := []comments.PR{
+		{Number: 18, Title: "Add queue view"}, {Number: 15, Title: "Fix retry loop"}, {Number: 12, Title: "Speed up cards"},
+		{Number: 9, Title: "Docs"}, {Number: 7, Title: strings.Repeat("long ", 40)},
+	}
+	for _, c := range []struct {
+		n    int
+		want string
+	}{
+		{3, "credited your 3 PRs: #18 Add queue view, #15 Fix retry loop, #12 Speed up cards."},
+		{5, "credited your 5 PRs: #18 Add queue view, #15 Fix retry loop, #12 Speed up cards and 2 more."},
+	} {
+		got := comments.Body("captain", "rocket", "v2.4.0", prs[:c.n], "https://l.example/s/x", "https://l.example/settings")
+		wantHead := "**@captain** launched **rocket v2.4.0** and " + c.want + "\n\n[Share your contribution](https://l.example/s/x)\n\n"
+		if !strings.HasPrefix(got, wantHead) {
+			t.Errorf("%d PRs:\n%s\nwant prefix:\n%s", c.n, got, wantHead)
+		}
+		if !strings.Contains(got, comments.ConsentSentence) || words(got) >= 70 {
+			t.Errorf("%d PRs: consent missing or %d words", c.n, words(got))
+		}
+	}
+	long := comments.Body("captain", "rocket", "v2.4.0", []comments.PR{prs[4], prs[4], prs[4]}, "https://l.example/s/x", "https://l.example/settings")
+	if n := words(long); n >= 70 {
+		t.Errorf("long titles: %d words", n)
 	}
 }
 

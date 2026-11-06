@@ -112,7 +112,11 @@ func sendComment(ctx context.Context, d Deps, s *state, p CommentsPayload) error
 	}
 	owner, name := repoParts(s.repo)
 	// The token in the footer lets the contributor opt out without signing in.
-	body := comments.Body(s.captain, neutralise(s.project), neutralise(s.version()), neutralise(m.PrTitle.String),
+	var prs []comments.PR
+	for _, r := range trigger.MemberPRs(ctx, d.Pool, m.ID, m.PrNumber.Int32, m.PrTitle.String) {
+		prs = append(prs, comments.PR{Number: r.Number, Title: neutralise(r.Title)})
+	}
+	body := comments.Body(s.captain, neutralise(s.project), neutralise(s.version()), prs,
 		d.link("/s/"+tok), d.link("/settings?token="+tok))
 	id, _, err := comments.Upsert(ctx, d.GitHub, s.repo.InstallationID, owner, name, int(m.PrNumber.Int32), comments.Marker(s.l.ID), body)
 	if denied(err) {

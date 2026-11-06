@@ -162,33 +162,44 @@ func IsBot(login, accountType string) bool {
 	return accountType == "Bot" || strings.HasSuffix(login, "[bot]")
 }
 
-// suggestCrew lists each human PR author once, with their headline PR when
-// they have one (then Ticked), otherwise their first PR.
+// suggestCrew lists each human PR author once, with all of their PRs newest
+// first (most recently merged, then higher number). PRNumber and PRTitle are
+// the newest, where the comment goes. Ticked when any of their PRs is a headline.
 func suggestCrew(prs []drafting.PR, heads []drafting.Change) []CrewSuggestion {
-	byNum := map[int]drafting.PR{}
-	for _, p := range prs {
-		byNum[p.Number] = p
-	}
-	headOf := map[int64]int{}
+	isHead := map[int]bool{}
 	for _, h := range heads {
-		if p, ok := byNum[h.PRNumber]; ok {
-			if _, dup := headOf[p.AuthorID]; !dup {
-				headOf[p.AuthorID] = p.Number
-			}
-		}
+		isHead[h.PRNumber] = true
 	}
 	var out []CrewSuggestion
-	seen := map[int64]bool{}
+	idx := map[int64]int{}
+	merged := map[int64][]drafting.PR{}
 	for _, p := range prs {
-		if p.AuthorID == 0 || seen[p.AuthorID] || IsBot(p.AuthorLogin, p.AuthorType) {
+		if p.AuthorID == 0 || IsBot(p.AuthorLogin, p.AuthorType) {
 			continue
 		}
-		seen[p.AuthorID] = true
-		s := CrewSuggestion{GitHubUserID: p.AuthorID, Login: p.AuthorLogin, AvatarURL: p.AuthorAvatarURL, PRNumber: p.Number, PRTitle: p.Title}
-		if n, ok := headOf[p.AuthorID]; ok {
-			s.PRNumber, s.PRTitle, s.Ticked = n, byNum[n].Title, true
+		i, ok := idx[p.AuthorID]
+		if !ok {
+			i = len(out)
+			idx[p.AuthorID] = i
+			out = append(out, CrewSuggestion{GitHubUserID: p.AuthorID, Login: p.AuthorLogin, AvatarURL: p.AuthorAvatarURL})
 		}
-		out = append(out, s)
+		merged[p.AuthorID] = append(merged[p.AuthorID], p)
+		if isHead[p.Number] {
+			out[i].Ticked = true
+		}
+	}
+	for i := range out {
+		own := merged[out[i].GitHubUserID]
+		slices.SortStableFunc(own, func(a, b drafting.PR) int {
+			if c := b.MergedAt.Compare(a.MergedAt); c != 0 {
+				return c
+			}
+			return cmp.Compare(b.Number, a.Number)
+		})
+		for _, p := range own {
+			out[i].PRs = append(out[i].PRs, PRRef{Number: p.Number, Title: p.Title})
+		}
+		out[i].PRNumber, out[i].PRTitle = own[0].Number, own[0].Title
 	}
 	return out
 }

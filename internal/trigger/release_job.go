@@ -233,15 +233,25 @@ func (d ReleaseDeps) save(ctx context.Context, render func(any, cards.Preset) ([
 		if c.Ticked {
 			state = StateTicked
 		}
-		if _, err := q.InsertCrewMember(ctx, sqlc.InsertCrewMemberParams{
+		cm, err := q.InsertCrewMember(ctx, sqlc.InsertCrewMemberParams{
 			LaunchID:     l.ID,
 			GithubUserID: pgtype.Int8{Int64: c.GitHubUserID, Valid: true},
 			Role:         "contributor",
 			State:        state,
 			PrNumber:     pgtype.Int4{Int32: int32(c.PRNumber), Valid: c.PRNumber != 0},
 			PrTitle:      pgtype.Text{String: c.PRTitle, Valid: c.PRTitle != ""},
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("insert crew %s: %w", c.Login, err)
+		}
+		if len(c.PRs) > 1 {
+			raw, err := json.Marshal(c.PRs)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE crew_members SET prs = $2 WHERE id = $1`, cm.ID, raw); err != nil {
+				return fmt.Errorf("save prs of %s: %w", c.Login, err)
+			}
 		}
 	}
 	return tx.Commit(ctx)
