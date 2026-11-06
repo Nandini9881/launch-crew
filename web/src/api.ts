@@ -325,8 +325,14 @@ export type Me = {
 }
 
 export const getMe = () => call<Me>('/api/me')
-export const optOutMe = () => call<{ optedOut: boolean }>('/api/me/opt-out', json('POST'))
+// scope says how far the opt-out reached: every future launch ('all') or just
+// the launch the token belongs to ('launch').
+export type OptOut = { optedOut: boolean; scope: 'all' | 'launch' }
+export const optOutMe = () => call<OptOut>('/api/me/opt-out', json('POST'))
+export const optInMe = () => call<{ optedOut: boolean }>('/api/me/opt-out', json('DELETE'))
 // The PR comment footer link carries the invite token, so this works signed out.
+// On its own it opts out of that launch; the server widens it to every launch
+// only when the session has proved the token's GitHub account.
 export const optOutWithToken = (token: string) =>
-  call<{ optedOut: boolean }>(`/api/opt-out?token=${encodeURIComponent(token)}`, json('POST'))
+  call<OptOut>(`/api/opt-out?token=${encodeURIComponent(token)}`, json('POST'))
 export const deleteMe = () => call<{ deleted: boolean }>('/api/me', json('DELETE'))

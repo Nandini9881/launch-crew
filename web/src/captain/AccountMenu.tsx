@@ -32,7 +32,10 @@ export default function AccountMenu() {
       <summary>Account</summary>
       <div className="cap-account-menu" onClick={() => box.current && (box.current.open = false)}>
         <a href="/settings">Settings</a>
-        <a href="/auth/logout">Sign out</a>
+        {/* Signing out changes state, so it is a same-origin POST, not a link. */}
+        <form method="post" action="/auth/logout">
+          <button type="submit">Sign out</button>
+        </form>
       </div>
     </details>
   )

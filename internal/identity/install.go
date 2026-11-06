@@ -38,7 +38,7 @@ type Install struct {
 	Keyring  *crypto.Keyring
 	// OAuth is the user-to-server config whose redirect is /github/install/callback.
 	OAuth oauth2.Config
-	// HTTPClient is used for the token exchange; defaults to http.DefaultClient.
+	// HTTPClient is used for the token exchange; defaults to a client with a 15 s timeout.
 	HTTPClient *http.Client
 	// GitHubURL is the web host for the install page; defaults to https://github.com.
 	GitHubURL string
@@ -113,11 +113,11 @@ func (i *Install) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, i.OAuth.AuthCodeURL(state), http.StatusFound)
 		return
 	}
-	cctx := ctx
-	if i.HTTPClient != nil {
-		cctx = context.WithValue(ctx, oauth2.HTTPClient, i.HTTPClient)
+	hc := i.HTTPClient
+	if hc == nil {
+		hc = defaultClient()
 	}
-	tok, err := i.OAuth.Exchange(cctx, code)
+	tok, err := i.OAuth.Exchange(context.WithValue(ctx, oauth2.HTTPClient, hc), code)
 	if err != nil {
 		log.Printf("install: exchange: %v", err)
 		http.Error(w, "GitHub authorization failed", http.StatusForbidden)

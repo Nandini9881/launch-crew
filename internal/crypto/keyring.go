@@ -21,12 +21,18 @@ const (
 	nonceSize = 12
 )
 
+// macInfo labels the MAC subkey derived from each AES key. Changing it
+// invalidates every state signed so far.
+const macInfo = "launchcrew/mac/v1"
+
 // Keyring holds AES-256-GCM keys by id. The first key in KEYRING encrypts;
 // every key can decrypt.
 type Keyring struct {
 	currentID string
 	keys      map[string]cipher.AEAD
-	raw       map[string][]byte
+	// macKeys holds, per key id, HMAC-SHA256(key, macInfo): a separate
+	// key for MAC so the AES key is never used for two purposes.
+	macKeys map[string][]byte
 }
 
 // ParseKeyring parses KEYRING in the form "k2:<base64>,k1:<base64>".
@@ -35,7 +41,7 @@ func ParseKeyring(env string) (*Keyring, error) {
 		return nil, errors.New("keyring: KEYRING is empty")
 	}
 
-	kr := &Keyring{keys: make(map[string]cipher.AEAD), raw: make(map[string][]byte)}
+	kr := &Keyring{keys: make(map[string]cipher.AEAD), macKeys: make(map[string][]byte)}
 	for i, entry := range strings.Split(env, ",") {
 		id, encoded, found := strings.Cut(entry, ":")
 		if !found {
@@ -69,7 +75,7 @@ func ParseKeyring(env string) (*Keyring, error) {
 			kr.currentID = id
 		}
 		kr.keys[id] = aead
-		kr.raw[id] = key
+		kr.macKeys[id] = deriveMACKey(key)
 	}
 	return kr, nil
 }
@@ -120,9 +126,16 @@ func (k *Keyring) Decrypt(ciphertext []byte) ([]byte, error) {
 	return plain, nil
 }
 
-// MAC returns HMAC-SHA256 of data under the current key.
+// deriveMACKey returns HMAC-SHA256(key, macInfo), the MAC subkey for key.
+func deriveMACKey(key []byte) []byte {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(macInfo))
+	return m.Sum(nil)
+}
+
+// MAC returns HMAC-SHA256 of data under the MAC subkey of the current key.
 func (k *Keyring) MAC(data []byte) []byte {
-	m := hmac.New(sha256.New, k.raw[k.currentID])
+	m := hmac.New(sha256.New, k.macKeys[k.currentID])
 	m.Write(data)
 	return m.Sum(nil)
 }

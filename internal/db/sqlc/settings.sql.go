@@ -101,6 +101,17 @@ func (q *Queries) DeleteUserIdentities(ctx context.Context, userID uuid.UUID) er
 	return err
 }
 
+const deleteUserOptOuts = `-- name: DeleteUserOptOuts :exec
+DELETE FROM opt_outs o
+WHERE o.github_user_id IN (SELECT gi.github_user_id FROM github_identities gi WHERE gi.user_id = $1)
+   OR o.github_user_id IN (SELECT cm.github_user_id FROM crew_members cm WHERE cm.user_id = $1 AND cm.github_user_id IS NOT NULL)
+`
+
+func (q *Queries) DeleteUserOptOuts(ctx context.Context, uid uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserOptOuts, uid)
+	return err
+}
+
 const deleteUserVoiceProfiles = `-- name: DeleteUserVoiceProfiles :exec
 DELETE FROM voice_profiles vp
 WHERE vp.buffer_account_id IN (SELECT bc.buffer_account_id FROM buffer_connections bc WHERE bc.user_id = $1)

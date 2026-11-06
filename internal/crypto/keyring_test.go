@@ -2,7 +2,10 @@ package crypto
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -149,5 +152,25 @@ func TestMAC(t *testing.T) {
 	}
 	if bytes.Equal(a.MAC(data), a.MAC([]byte("other"))) {
 		t.Error("different data must give different MACs")
+	}
+}
+
+// The MAC key is derived from the AES key, never the AES key itself, so a
+// MAC can leak nothing about the key that seals cookies and tokens.
+func TestMACUsesDerivedKey(t *testing.T) {
+	kr := mustParse(t, "k1:"+encodeKey(testKey(1)))
+	data := []byte("payload")
+
+	raw := hmac.New(sha256.New, testKey(1))
+	raw.Write(data)
+	if bytes.Equal(kr.MAC(data), raw.Sum(nil)) {
+		t.Fatal("MAC is HMAC under the raw AES key")
+	}
+
+	// Stable for a fixed key: HMAC(HMAC(key, "launchcrew/mac/v1"), data).
+	// Existing signed states must keep verifying across restarts.
+	const want = "ff4acf2199004e8446b00c43ae49f70467c0e6de91c328d692bf08037cead018"
+	if got := hex.EncodeToString(kr.MAC(data)); got != want {
+		t.Fatalf("MAC = %s, want %s", got, want)
 	}
 }

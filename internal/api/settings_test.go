@@ -148,18 +148,19 @@ func TestOptOutByTokenNeedsNoSession(t *testing.T) {
 	}
 	second, _ := e.crewRow(t, l2.ID, nil, gh, "ticked")
 	rr := e.do("POST", "/api/opt-out?token="+tok, "", nil, nil) // the token is expired
-	if rr.Code != 200 || decode(t, rr)["optedOut"] != true {
+	if v := decode(t, rr); rr.Code != 200 || v["optedOut"] != true || v["scope"] != "launch" {
 		t.Fatalf("opt out: %d %s", rr.Code, rr.Body)
-	}
-	if out, _ := e.q.IsOptedOut(e.ctx, gh); !out {
-		t.Fatal("github id not opted out")
 	}
 	if got, _ := e.q.GetCrewMember(e.ctx, m.ID); got.State != "opted_out" {
 		t.Fatalf("state %s", got.State)
 	}
-
-	if got, _ := e.q.GetCrewMember(e.ctx, second.ID); got.State != "opted_out" {
-		t.Fatalf("row on the second launch is %s, want opted_out", got.State)
+	// The token sits in a public PR comment, so on its own it reaches only
+	// this launch: no global opt-out, and the second launch is untouched.
+	if out, _ := e.q.IsOptedOut(e.ctx, gh); out {
+		t.Fatal("a bare token opted the github id out everywhere")
+	}
+	if got, _ := e.q.GetCrewMember(e.ctx, second.ID); got.State != "ticked" {
+		t.Fatalf("row on the second launch is %s, want ticked", got.State)
 	}
 
 	// A queued row keeps its state, and a row with no GitHub id adds nothing.
@@ -191,6 +192,97 @@ func TestOptOutRateLimited(t *testing.T) {
 	}
 	if last != http.StatusTooManyRequests {
 		t.Fatalf("12th try: %d, want 429", last)
+	}
+}
+
+// A token presented by the person who has proved the matching GitHub identity
+// opts them out everywhere; presented by anyone else it reaches one row only.
+func TestOptOutByTokenGoesGlobalOnlyForTheProvenOwner(t *testing.T) {
+	e := settingsEnv(t)
+	gh := 5_000_000_000 + int64(uuid.New().ID())
+	owner := e.person(t, gh, "ivy")
+	stranger := e.person(t, gh+1, "jon")
+	l2, err := e.q.CreateLaunch(e.ctx, sqlc.CreateLaunchParams{
+		OwnerUserID: e.launch.OwnerUserID.UUID, Source: "manual", Title: "Second", HeadlineChanges: []byte(`[]`), Roles: []byte(`[]`), WindowMinutes: 90, CrewCap: 200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := e.crewRow(t, l2.ID, nil, gh, "invited")
+
+	// A signed-in stranger who found the link in the PR comment.
+	m, tok := e.crewRow(t, e.launch.ID, nil, gh, "invited")
+	if rr := e.do("POST", "/api/opt-out?token="+tok, "", nil, e.cookie(t, session.Session{UserID: stranger.ID})); rr.Code != 200 {
+		t.Fatalf("stranger: %d %s", rr.Code, rr.Body)
+	}
+	if out, _ := e.q.IsOptedOut(e.ctx, gh); out {
+		t.Fatal("a stranger's session opted the github id out everywhere")
+	}
+	if got, _ := e.q.GetCrewMember(e.ctx, m.ID); got.State != "opted_out" {
+		t.Fatalf("row is %s", got.State)
+	}
+	if got, _ := e.q.GetCrewMember(e.ctx, other.ID); got.State != "invited" {
+		t.Fatalf("other launch row is %s", got.State)
+	}
+
+	// The owner, signed in after verifying with GitHub, uses the same link.
+	if _, err := e.deps.Pool.Exec(e.ctx, `UPDATE crew_members SET state = 'invited' WHERE id = $1`, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	rr := e.do("POST", "/api/opt-out?token="+tok, "", nil, e.cookie(t, session.Session{UserID: owner.ID}))
+	if v := decode(t, rr); rr.Code != 200 || v["optedOut"] != true || v["scope"] != "all" {
+		t.Fatalf("owner: %d %s", rr.Code, rr.Body)
+	}
+	if out, _ := e.q.IsOptedOut(e.ctx, gh); !out {
+		t.Fatal("the proven owner was not opted out everywhere")
+	}
+	for _, id := range []uuid.UUID{m.ID, other.ID} {
+		if got, _ := e.q.GetCrewMember(e.ctx, id); got.State != "opted_out" {
+			t.Fatalf("row %s is %s, want opted_out", id, got.State)
+		}
+	}
+}
+
+func TestOptInUndoesOptOut(t *testing.T) {
+	e := settingsEnv(t)
+	gh := 5_000_000_000 + int64(uuid.New().ID())
+	u := e.person(t, gh, "kim")
+	c := e.cookie(t, session.Session{UserID: u.ID})
+	if rr := e.do("DELETE", "/api/me/opt-out", "", nil, nil); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("signed out: %d", rr.Code)
+	}
+	if rr := e.do("POST", "/api/me/opt-out", "", nil, c); rr.Code != 200 {
+		t.Fatalf("opt out: %d", rr.Code)
+	}
+	// A second GitHub id reached the user through a crew row, not an identity.
+	gh2 := gh + 1
+	t.Cleanup(func() {
+		_, _ = e.deps.Pool.Exec(context.Background(), `DELETE FROM opt_outs WHERE github_user_id = $1`, gh2)
+	})
+	e.crewRow(t, e.launch.ID, &u, gh2, "invited")
+	if err := e.q.InsertOptOut(e.ctx, gh2); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody else's opt-out must survive.
+	bystander := e.person(t, gh+2, "lee")
+	if rr := e.do("POST", "/api/me/opt-out", "", nil, e.cookie(t, session.Session{UserID: bystander.ID})); rr.Code != 200 {
+		t.Fatalf("bystander opt out: %d", rr.Code)
+	}
+
+	rr := e.do("DELETE", "/api/me/opt-out", "", nil, c)
+	if rr.Code != 200 || decode(t, rr)["optedOut"] != false {
+		t.Fatalf("opt in: %d %s", rr.Code, rr.Body)
+	}
+	for _, id := range []int64{gh, gh2} {
+		if out, _ := e.q.IsOptedOut(e.ctx, id); out {
+			t.Fatalf("github id %d still opted out", id)
+		}
+	}
+	if out, _ := e.q.IsOptedOut(e.ctx, gh+2); !out {
+		t.Fatal("undo removed a bystander's opt-out")
+	}
+	if v := decode(t, e.do("GET", "/api/me", "", nil, c)); v["optedOut"] != false {
+		t.Fatalf("me after undo: %v", v)
 	}
 }
 
@@ -417,8 +509,8 @@ func TestDeleteRemovesTokensKeepsOptOut(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatalf("contributor opt-out link after captain deletion: %d %s", rr.Code, rr.Body)
 	}
-	if out, _ := e.q.IsOptedOut(e.ctx, gh3); !out {
-		t.Fatal("contributor opt-out not recorded")
+	if got, _ := e.q.GetCrewMember(e.ctx, contrib.ID); got.State != "opted_out" {
+		t.Fatalf("contributor row is %s, want opted_out", got.State)
 	}
 	// The deleted person's old invite link no longer resolves.
 	if rr := e.do("GET", "/api/s/"+tok, "", nil, nil); rr.Code != http.StatusNotFound {

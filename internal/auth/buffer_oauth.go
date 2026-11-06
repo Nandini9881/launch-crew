@@ -38,6 +38,8 @@ const (
 const (
 	scopes       = "account:read posts:read posts:write offline_access"
 	defaultAfter = "/captain"
+	// httpTimeout bounds every call to Buffer made while signing in.
+	httpTimeout = 15 * time.Second
 )
 
 // BufferOAuth serves the sign-in routes. AuthURL, TokenURL and APIURL
@@ -121,6 +123,8 @@ func (b *BufferOAuth) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing code", http.StatusBadRequest)
 		return
 	}
+	// Bound the exchange the same way fetchAccount is, so a stalled Buffer cannot hold the handler open.
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, &http.Client{Timeout: httpTimeout})
 	tok, err := b.config().Exchange(ctx, code, oauth2.VerifierOption(sess.PKCEVerifier))
 	if err != nil {
 		log.Printf("buffer oauth: exchange: %v", err)
@@ -217,7 +221,7 @@ func (b *BufferOAuth) fetchAccount(ctx context.Context, accessToken string) (acc
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: httpTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", err

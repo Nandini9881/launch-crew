@@ -53,19 +53,29 @@
   box-shadow: var(--shadow-card);
 }
 
-.cap-account-menu a {
+.cap-account-menu a,
+.cap-account-menu button {
   display: flex;
   align-items: center;
+  inline-size: 100%;
   min-block-size: 44px;
+  padding-block: 0;
   padding-inline: var(--space-md);
+  border: 0;
   border-radius: var(--rounded-sm);
+  background: none;
   color: var(--color-text);
+  font: inherit;
   font-weight: 600;
+  text-align: start;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .cap-account-menu a:hover,
-.cap-account-menu a:focus-visible {
+.cap-account-menu a:focus-visible,
+.cap-account-menu button:hover,
+.cap-account-menu button:focus-visible {
   background-color: var(--color-tint);
 }
 

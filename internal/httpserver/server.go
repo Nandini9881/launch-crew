@@ -34,6 +34,7 @@ type Deps struct {
 // New returns the application handler.
 func New(deps Deps) http.Handler {
 	r := chi.NewRouter()
+	r.Use(harden)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok"))
@@ -41,7 +42,13 @@ func New(deps Deps) http.Handler {
 	if oa := deps.BufferOAuth; oa != nil {
 		r.Get("/auth/buffer/start", oa.Start)
 		r.Get("/auth/buffer/callback", oa.Callback)
-		r.Get("/auth/logout", oa.Logout)
+		// POST only: a GET that signs the person out could be triggered cross-site.
+		// The GET is answered here so it does not fall through to the SPA.
+		r.Post("/auth/logout", oa.Logout)
+		r.Get("/auth/logout", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "sign out with a POST", http.StatusMethodNotAllowed)
+		})
 	}
 	if in := deps.Install; in != nil {
 		r.Get("/github/install/start", in.Start)
@@ -75,6 +82,18 @@ func New(deps Deps) http.Handler {
 	}
 	r.Handle("/*", spaHandler())
 	return r
+}
+
+// harden sets the response headers every route can carry. There is no
+// page-wide CSP: Vite's inline bootstrap would need nonces. The SPA index
+// adds its own framing headers in spaHandler.
+func harden(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func apiNotFound(w http.ResponseWriter, _ *http.Request) {
