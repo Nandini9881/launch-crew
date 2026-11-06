@@ -666,3 +666,37 @@ func TestDailyPostingLimitsCachedForAMinute(t *testing.T) {
 		t.Fatalf("requests after 61s = %d, want 2", n)
 	}
 }
+
+// Two machines overlap during a deploy: the other one refreshes first and
+// stores new tokens, so this one's refresh token is spent and Buffer answers
+// invalid_grant. The connection must not be marked needs_reconnect, since
+// the stored tokens are good; the call goes on with them.
+func TestInvalidGrantAfterForeignRefreshKeepsConnection(t *testing.T) {
+	e := setup(t, -time.Minute)
+	e.fake.SetRefresh(bufferfake.RefreshInvalidGrant)
+	e.fake.OnToken(func() {
+		access, keyID, _ := e.kr.Encrypt([]byte("access-other"))
+		refresh, _, _ := e.kr.Encrypt([]byte("refresh-other"))
+		_ = e.q.UpdateConnectionTokens(context.Background(), sqlc.UpdateConnectionTokensParams{
+			ID: e.connID, AccessTokenEnc: access, RefreshTokenEnc: refresh, KeyID: keyID,
+			ExpiresAt: pgtype.Timestamptz{Time: e.clock.Now().Add(time.Hour), Valid: true},
+		})
+	})
+	if err := e.c.Do(context.Background(), e.connID, ping, nil, nil); err != nil {
+		t.Fatalf("err = %v, want the call to go on with the other machine's token", err)
+	}
+	conn := e.conn(t)
+	if conn.Status != "ok" {
+		t.Fatalf("status = %q, want ok", conn.Status)
+	}
+	if got := e.decrypt(t, conn.AccessTokenEnc); got != "access-other" {
+		t.Fatalf("stored access = %q, want the other machine's", got)
+	}
+	reqs := e.fake.Requests()
+	if len(reqs) != 1 || reqs[0].Auth != "Bearer access-other" {
+		t.Fatalf("requests = %+v, want one with the other machine's token", reqs)
+	}
+	if n := len(e.fake.RefreshForms()); n != 1 {
+		t.Fatalf("refresh calls = %d, want 1", n)
+	}
+}
