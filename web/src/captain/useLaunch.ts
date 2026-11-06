@@ -9,24 +9,28 @@ const REFETCH = 15000
 export function useLaunch(id: string) {
   const [detail, setDetail] = useState<Detail>()
   const [error, setError] = useState<ApiError>()
-  const live = useRef(true)
+  // The id this hook is showing right now. An answer for another id (the page moved on
+  // while the request was in flight) or after unmount is dropped, never applied.
+  const current = useRef<string | null>(id)
+  current.current = id
 
   useEffect(() => {
-    live.current = true
+    current.current = id
     return () => {
-      live.current = false
+      current.current = null
     }
-  }, [])
+  }, [id])
 
   const reload = useCallback(async () => {
+    const want = id
     try {
-      const d = await getLaunch(id)
-      if (live.current) {
+      const d = await getLaunch(want)
+      if (current.current === want) {
         setDetail(d)
         setError(undefined)
       }
     } catch (e) {
-      if (live.current) setError(asError(e))
+      if (current.current === want) setError(asError(e))
     }
   }, [id])
 
@@ -44,7 +48,7 @@ export function useLaunch(id: string) {
   const patch = useCallback(
     async (p: Patch) => {
       const d = await patchLaunch(id, p)
-      if (live.current) setDetail(d)
+      if (current.current === id) setDetail(d)
     },
     [id],
   )
@@ -52,7 +56,7 @@ export function useLaunch(id: string) {
   const editDraft = useCallback(
     async (draftId: string, text: string) => {
       const d = await editCaptainDraft(id, draftId, text)
-      if (live.current) setDetail(d)
+      if (current.current === id) setDetail(d)
     },
     [id],
   )
@@ -60,7 +64,7 @@ export function useLaunch(id: string) {
   const skipDraft = useCallback(
     async (draftId: string, skipped: boolean) => {
       const d = await patchCaptainDraft(id, draftId, { skipped })
-      if (live.current) setDetail(d)
+      if (current.current === id) setDetail(d)
     },
     [id],
   )
