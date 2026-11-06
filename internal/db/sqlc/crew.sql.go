@@ -693,6 +693,25 @@ func (q *Queries) SaveCrewDraftEdit(ctx context.Context, arg SaveCrewDraftEditPa
 	return result.RowsAffected(), nil
 }
 
+const setCrewMemberNeutralDraftIfAbsent = `-- name: SetCrewMemberNeutralDraftIfAbsent :execrows
+UPDATE crew_members SET neutral_draft = $2
+WHERE id = $1 AND (neutral_draft IS NULL OR btrim(neutral_draft) = '')
+`
+
+type SetCrewMemberNeutralDraftIfAbsentParams struct {
+	ID           uuid.UUID   `json:"id"`
+	NeutralDraft pgtype.Text `json:"neutral_draft"`
+}
+
+// Two Share taps at once both draft; the first write stands.
+func (q *Queries) SetCrewMemberNeutralDraftIfAbsent(ctx context.Context, arg SetCrewMemberNeutralDraftIfAbsentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setCrewMemberNeutralDraftIfAbsent, arg.ID, arg.NeutralDraft)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setCrewMemberVoiced = `-- name: SetCrewMemberVoiced :exec
 UPDATE crew_members SET voiced_at = $2, voice_profile_id = $3 WHERE id = $1
 `

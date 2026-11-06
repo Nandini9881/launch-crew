@@ -596,7 +596,8 @@ func ChooseRole(ctx context.Context, d Deps, launchID uuid.UUID, role, hint, tal
 }
 
 // NeutralDraft returns the member's neutral-voice draft, generating and
-// storing it on the first call.
+// storing it on the first call. Two taps at once both generate, but only
+// the first text written is kept; the other tap returns that one.
 func NeutralDraft(ctx context.Context, d Deps, memberID uuid.UUID) (string, error) {
 	m, err := getMember(ctx, d, memberID)
 	if err != nil {
@@ -624,10 +625,20 @@ func NeutralDraft(ctx context.Context, d Deps, memberID uuid.UUID) (string, erro
 		return "", fmt.Errorf("crew: neutral draft: %w", err)
 	}
 	text := res.Draft.Text
-	if err := d.Q.UpdateCrewMemberNeutralDraft(ctx, sqlc.UpdateCrewMemberNeutralDraftParams{
+	n, err := d.Q.SetCrewMemberNeutralDraftIfAbsent(ctx, sqlc.SetCrewMemberNeutralDraftIfAbsentParams{
 		ID: m.ID, NeutralDraft: pgtype.Text{String: text, Valid: true},
-	}); err != nil {
+	})
+	if err != nil {
 		return "", fmt.Errorf("crew: save neutral draft: %w", err)
+	}
+	if n == 0 {
+		// Another tap wrote first; its text is the member's draft now.
+		if m, err = getMember(ctx, d, memberID); err != nil {
+			return "", err
+		}
+		if stored := strings.TrimSpace(m.NeutralDraft.String); stored != "" {
+			return m.NeutralDraft.String, nil
+		}
 	}
 	return text, nil
 }

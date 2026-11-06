@@ -31,6 +31,11 @@ WHERE id = $1 AND (user_id IS NULL OR user_id = $2);
 -- name: UpdateCrewMemberNeutralDraft :exec
 UPDATE crew_members SET neutral_draft = $2 WHERE id = $1;
 
+-- name: SetCrewMemberNeutralDraftIfAbsent :execrows
+-- Two Share taps at once both draft; the first write stands.
+UPDATE crew_members SET neutral_draft = $2
+WHERE id = $1 AND (neutral_draft IS NULL OR btrim(neutral_draft) = '');
+
 -- name: UpdateCrewMemberCard :exec
 UPDATE crew_members SET card_asset_id = $2 WHERE id = $1;
 
