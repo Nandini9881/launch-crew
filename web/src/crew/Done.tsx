@@ -39,6 +39,8 @@ export default function Done() {
   const [fetched, setFetched] = useState<Outcome[]>()
   const [fetchFailed, setFetchFailed] = useState(false)
   const [attempt, setAttempt] = useState(0)
+  // TODO: mount this from the server once /drafts or /board carries the remember flag;
+  // neither response has it today, so the box always starts unchecked.
   const [saved, setSaved] = useState(false)
   const [saveFailed, setSaveFailed] = useState(false)
 
