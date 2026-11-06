@@ -464,10 +464,12 @@ test('when the clipboard is blocked the link field is selected and the button sa
   expect(field.selectionEnd! - field.selectionStart!).toBe(field.value.length)
 })
 
+// 140 s sits between the rounding boundaries of until() (2.33 min, then 1.33, then 0.33),
+// so a few seconds of real time on a slow CI runner cannot flip a tick early.
 test('the hero countdown ticks and asks for a later time once the moment passes', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   try {
-    mockApi({ detail: detail({ launchAt: new Date(Date.now() + 90_000).toISOString() }) })
+    mockApi({ detail: detail({ launchAt: new Date(Date.now() + 140_000).toISOString() }) })
     visit('/captain/launches/l1')
     const side = (await screen.findByText('Window opens in')).parentElement!
     expect(within(side).getByText('2m')).toBeInTheDocument()
