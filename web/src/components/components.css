@@ -23,7 +23,7 @@
 }
 
 .btn-secondary {
-  background-color: var(--color-tint);
+  background-color: var(--color-surface);
   color: var(--color-text);
   border-color: var(--color-hairline);
 }
@@ -35,6 +35,13 @@
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* DESIGN.md: primary actions are 52px on desktop and 54px on the phone. */
+@media (width <= 480px) {
+  .btn {
+    min-height: 54px;
+  }
 }
 
 .chip {

@@ -12,7 +12,15 @@ const SIDE = 800
 const TILE = 0.2
 const PLANE_PATH =
   'M12 2.2c1.05 0 1.85 1.3 1.85 3v4.1l7 3.9v2.1l-7 -2v3.5l2.35 1.85v1.55L12 19.1l-4.2 1.2v-1.55l2.35 -1.85v-3.5l-7 2v-2.1l7 -3.9V5.2c0 -1.7 0.8 -3 1.85 -3z'
-const INDIGO = '#4a45d1'
+
+// Canvas cannot read CSS variables, so the slide's colours are read from the tokens at
+// draw time. The fallbacks are DESIGN.md's qr-slide values, for a canvas drawn before
+// the stylesheet has applied.
+const FALLBACK: Record<string, string> = { '--color-card-ink': '#15181f', '--color-slide-text': '#f2f3f7', '--color-primary': '#4a45d1' }
+function token(name: keyof typeof FALLBACK) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || FALLBACK[name]
+}
 
 export type Logo = { kind: 'plane' } | { kind: 'none' } | { kind: 'image'; url: string }
 
@@ -39,7 +47,7 @@ function drawPlane(ctx: CanvasRenderingContext2D, mid: number, size: number) {
   ctx.scale(size / 24, size / 24)
   ctx.rotate(Math.PI / 4)
   ctx.translate(-12, -12)
-  ctx.fillStyle = INDIGO
+  ctx.fillStyle = token('--color-primary')
   ctx.fill(new Path2D(PLANE_PATH))
   ctx.restore()
 }
@@ -54,28 +62,30 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   })
 }
 
-// QR with error correction H and a white tile with the logo over the centre.
+// QR with error correction H and a light tile with the logo over the centre. Modules are
+// card-ink on slide-text: both tokens are pinned across schemes, so the code stays scannable.
 async function paint(canvas: HTMLCanvasElement, text: string, logo: Logo) {
+  const tile = token('--color-slide-text')
   await QRCode.toCanvas(canvas, text, {
     errorCorrectionLevel: 'H',
     width: SIDE,
     margin: 2,
-    color: { dark: '#000000', light: '#ffffff' },
+    color: { dark: token('--color-card-ink'), light: tile },
   })
   // qrcode writes inline px sizes that beat the stylesheet; let CSS size the slide.
   canvas.style.width = ''
   canvas.style.height = ''
   const ctx = canvas.getContext('2d')
   if (!ctx || logo.kind === 'none') return
-  const tile = canvas.width * TILE
+  const size = canvas.width * TILE
   const mid = canvas.width / 2
-  ctx.fillStyle = '#ffffff'
-  roundTile(ctx, mid - tile / 2, mid - tile / 2, tile, tile * 0.22)
+  ctx.fillStyle = tile
+  roundTile(ctx, mid - size / 2, mid - size / 2, size, size * 0.22)
   ctx.fill()
   if (logo.kind === 'image') {
     try {
       const img = await loadImage(logo.url)
-      const box = tile * 0.76
+      const box = size * 0.76
       const k = Math.min(box / img.width, box / img.height)
       ctx.drawImage(img, mid - (img.width * k) / 2, mid - (img.height * k) / 2, img.width * k, img.height * k)
       return
@@ -83,7 +93,7 @@ async function paint(canvas: HTMLCanvasElement, text: string, logo: Logo) {
       /* fall back to the plane */
     }
   }
-  drawPlane(ctx, mid, tile * 0.7)
+  drawPlane(ctx, mid, size * 0.7)
 }
 
 export default function Show() {

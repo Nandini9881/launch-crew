@@ -514,16 +514,11 @@
   color: inherit;
 }
 
+/* Layout only: the button itself is the design system's secondary button. */
 .home-final-btn {
   justify-self: start;
   padding-inline: var(--space-lg);
-  background-color: var(--color-surface);
-  color: var(--color-text);
   text-decoration: none;
-}
-
-.home-final-btn:hover {
-  background-color: var(--color-tint);
 }
 
 /* Footer */

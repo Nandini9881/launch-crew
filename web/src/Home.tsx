@@ -274,7 +274,7 @@ export default function Home() {
             <h2 className="home-h2 home-final-title">Run your next release as a crew.</h2>
             <p>Nothing posts until each person taps approve.</p>
           </div>
-          <a className="btn home-final-btn" href={SIGN_IN}>Sign in with Buffer</a>
+          <a className="btn btn-secondary home-final-btn" href={SIGN_IN}>Sign in with Buffer</a>
         </Section>
 
         <footer className="home-footer">

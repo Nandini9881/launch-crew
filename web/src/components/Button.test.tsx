@@ -24,3 +24,16 @@ test('busy button is aria-disabled so assistive tech knows it will not act', () 
   render(<Button busy>Add</Button>)
   expect(screen.getByRole('button', { name: 'Add' })).toHaveAttribute('aria-disabled', 'true')
 })
+
+test('buttons follow DESIGN.md: secondary sits on surface, 52px on desktop and 54px on a phone', () => {
+  const secondary = /\.btn-secondary\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+  expect(secondary).toMatch(/background-color:\s*var\(--color-surface\)/)
+  expect(secondary).not.toMatch(/--color-tint/)
+  const base = /\.btn\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+  expect(base).toMatch(/min-height:\s*52px/)
+  // a phone-width media block raises the primary action to 54px
+  const phone = /@media\s*\((?:max-)?width\s*(?:<=|:)\s*(\d+)px\)\s*\{[^@]*?\.btn\s*\{([^}]*)\}/s.exec(css)
+  expect(phone).not.toBeNull()
+  expect(Number(phone![1])).toBeGreaterThanOrEqual(375)
+  expect(phone![2]).toMatch(/min-height:\s*54px/)
+})
