@@ -54,6 +54,11 @@ progress {
   outline-offset: 2px;
 }
 
+/* The page itself is focused after navigation only so it is announced; it is not a control. */
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
