@@ -6,6 +6,7 @@ import Button from '../components/Button'
 import Loader from '../components/Loader'
 import Frame from './Frame'
 import { asError, stamp, until } from './format'
+import { useNow } from './useNow'
 import './launches.css'
 
 type Tone = 'draft' | 'joining' | 'approving' | 'live' | 'closed'
@@ -172,7 +173,7 @@ export default function Launches() {
     setAttempt((n) => n + 1)
   }
 
-  const now = Date.now()
+  const now = useNow()
   return (
     <Frame>
       {error ? (

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import type { LaunchSummary } from '../api'
@@ -86,4 +86,19 @@ test('offline shows a plain message and Retry fetches again', async () => {
   expect(await screen.findByRole('link', { name: /Split-pane/ })).toBeInTheDocument()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+test('the countdown ticks every minute and turns Overdue once the moment passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    show([base({ launchAt: new Date(Date.now() + 90_000).toISOString() })])
+    const link = await screen.findByRole('link', { name: /Split-pane/ })
+    expect(within(link).getByText('2m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(link).getByText('1m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(link).getByText('Overdue')).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
 })

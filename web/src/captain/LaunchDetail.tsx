@@ -12,6 +12,7 @@ import Preflight from './Preflight'
 import Review from './Review'
 import Timing from './Timing'
 import { useLaunch } from './useLaunch'
+import { useNow } from './useNow'
 
 type Step = { name: string; note: string; state: 'done' | 'now' | 'next' }
 
@@ -69,6 +70,7 @@ const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? o
 
 // The launch's pass: what it is, who is in, and when the window opens.
 function Hero({ detail, launched }: { detail: Detail; launched: boolean }) {
+  const now = useNow()
   const closed = detail.status === 'closed'
   const crewing = detail.crew.length > 0
   const chip = closed ? 'Closed' : launched ? 'Posting' : crewing ? 'Crew approving' : 'Draft'
@@ -91,13 +93,13 @@ function Hero({ detail, launched }: { detail: Detail; launched: boolean }) {
     label = 'Window'
     big = 'Posted'
   } else if (launched) {
-    const close = detail.launchAt ? until(plusMinutes(detail.launchAt, detail.windowMinutes)) : ''
+    const close = detail.launchAt ? until(plusMinutes(detail.launchAt, detail.windowMinutes), now) : ''
     label = close ? 'Window closes in' : 'Window'
     big = close || 'Posted'
   } else if (!detail.launchAt) {
     big = 'Pick a launch time'
   } else {
-    big = until(detail.launchAt) || 'Pick a later time'
+    big = until(detail.launchAt, now) || 'Pick a later time'
   }
   return (
     <section className="cap-hero" aria-label="Launch summary">

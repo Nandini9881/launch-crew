@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import App from '../App'
@@ -462,4 +462,20 @@ test('when the clipboard is blocked the link field is selected and the button sa
   const field = screen.getByLabelText('Add by link') as HTMLInputElement
   expect(field).toHaveFocus()
   expect(field.selectionEnd! - field.selectionStart!).toBe(field.value.length)
+})
+
+test('the hero countdown ticks and asks for a later time once the moment passes', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    mockApi({ detail: detail({ launchAt: new Date(Date.now() + 90_000).toISOString() }) })
+    visit('/captain/launches/l1')
+    const side = (await screen.findByText('Window opens in')).parentElement!
+    expect(within(side).getByText('2m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(side).getByText('1m')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(within(side).getByText('Pick a later time')).toBeInTheDocument()
+  } finally {
+    vi.useRealTimers()
+  }
 })
