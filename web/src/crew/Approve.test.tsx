@@ -444,3 +444,16 @@ test('a draft already in Buffer locks with a caption that says where to edit it'
   await waitFor(() => expect(area).toHaveAttribute('readonly'))
   expect(screen.getByText('Already in your Buffer, edit it there')).toBeInTheDocument()
 })
+
+test('with no channel ticked the primary button names what is missing', async () => {
+  mockApi({ connect: approveView({ voicedReady: true, channels: [X], drafts: [dr('d1', 'c1', 'template one')] }) })
+  const user = userEvent.setup()
+  visit()
+  const go = await screen.findByRole('button', { name: 'Add to my queue' })
+  expect(go).toBeEnabled()
+  await user.click(screen.getByRole('checkbox', { name: /^Ada on X/ }))
+  const pick = screen.getByRole('button', { name: 'Pick a channel' })
+  expect(pick).toBeDisabled()
+  await user.click(screen.getByRole('checkbox', { name: /^Ada on X/ }))
+  expect(screen.getByRole('button', { name: 'Add to my queue' })).toBeEnabled()
+})

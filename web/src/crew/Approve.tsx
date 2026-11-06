@@ -363,7 +363,7 @@ export default function Approve() {
         ) : (
           (!data || eligible) && (
             <Button busy={!data || posting} onClick={submit} disabled={!!data && shown.every((d) => done(d.channelId))}>
-              {added ? 'Added' : 'Add to my queue'}
+              {added ? 'Added' : data && shown.length === 0 ? 'Pick a channel' : 'Add to my queue'}
             </Button>
           )
         )}

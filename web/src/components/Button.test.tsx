@@ -19,3 +19,8 @@ test('busy button keeps its label and sets aria-busy', () => {
   render(<Button busy>Add</Button>)
   expect(screen.getByRole('button', { name: 'Add' })).toHaveAttribute('aria-busy', 'true')
 })
+
+test('busy button is aria-disabled so assistive tech knows it will not act', () => {
+  render(<Button busy>Add</Button>)
+  expect(screen.getByRole('button', { name: 'Add' })).toHaveAttribute('aria-disabled', 'true')
+})
