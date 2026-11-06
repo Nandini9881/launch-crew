@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { pressLaunch, retryJob, type Detail, type Patch } from '../api'
+import { pressLaunch, refreshChannels, retryJob, type Detail, type Patch } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Loader from '../components/Loader'
@@ -220,6 +220,11 @@ export default function LaunchDetail() {
             onHidden={(hiddenPrs) => save({ hiddenPrs })}
             onEditDraft={(draftId, text) => editDraft(draftId, text)}
             onSkipDraft={(draftId, skipped) => skipDraft(draftId, skipped)}
+            onRefreshChannels={async () => {
+              const r = await refreshChannels(id)
+              await reload()
+              return r.channels
+            }}
           />
           <Crew detail={detail} pending={pending} onTicked={(tickedCrew) => save({ tickedCrew })} />
         </div>

@@ -1052,3 +1052,15 @@
     flex: 0 0 15rem;
   }
 }
+
+.cap-posts-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.cap-posts-head .cap-hint {
+  margin-block: 0;
+}

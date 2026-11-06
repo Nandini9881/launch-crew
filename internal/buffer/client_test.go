@@ -484,6 +484,45 @@ func TestChannelsCachedForOneHour(t *testing.T) {
 	}
 }
 
+func TestRefreshChannelsRereadsWithinTheHour(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	e.fake.Handle("GetChannels", channelsData)
+	if _, err := e.c.Channels(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	e.clock.Advance(time.Minute)
+	chs, err := e.c.RefreshChannels(ctx, e.connID)
+	if err != nil || len(chs) != 1 {
+		t.Fatalf("refresh = %+v, %v", chs, err)
+	}
+	if n := e.fake.Count("GetChannels"); n != 2 {
+		t.Fatalf("requests = %d, want 2", n)
+	}
+}
+
+func TestRefreshChannelsThrottled(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	e.fake.Handle("GetChannels", channelsData)
+	for range 2 {
+		if _, err := e.c.RefreshChannels(ctx, e.connID); err != nil {
+			t.Fatal(err)
+		}
+		e.clock.Advance(5 * time.Second)
+	}
+	if n := e.fake.Count("GetChannels"); n != 1 {
+		t.Fatalf("requests within 15s = %d, want 1", n)
+	}
+	e.clock.Advance(20 * time.Second)
+	if _, err := e.c.RefreshChannels(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetChannels"); n != 2 {
+		t.Fatalf("requests after throttle = %d, want 2", n)
+	}
+}
+
 func TestAuditRowPerCall(t *testing.T) {
 	e := setup(t, time.Hour)
 	ctx := context.Background()

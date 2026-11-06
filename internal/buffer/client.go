@@ -39,6 +39,7 @@ const (
 	refreshSkew  = 60 * time.Second
 	maxWait      = 15 * time.Minute // never sleep past one budget window
 	cacheTTL     = time.Hour
+	refreshFloor = 15 * time.Second // RefreshChannels reuses a cache younger than this
 	refreshLimit = 30 * time.Second
 	maxPage      = 100
 )

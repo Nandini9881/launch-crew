@@ -40,6 +40,7 @@ func NewCaptain(deps launch.Deps, sessions *session.Store) http.Handler {
 		r.Patch("/drafts/{draftID}", c.editDraft)
 		r.Post("/launch", c.launch)
 		r.Post("/retry/{jobID}", c.retry)
+		r.Post("/channels/refresh", c.refreshChannels)
 	})
 	r.Get("/repos", c.repos)
 	r.Patch("/repos/{id}", c.patchRepo)
@@ -110,6 +111,8 @@ func (c *Captain) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, "not_draft", "this launch has gone out and can no longer be edited")
 	case errors.As(err, new(*launch.PreflightError)):
 		writeError(w, http.StatusConflict, "preflight_red", err.Error())
+	case errors.Is(err, launch.ErrNoBuffer):
+		writeError(w, http.StatusConflict, "no_buffer", "connect Buffer first")
 	case errors.Is(err, launch.ErrAlreadyLaunched):
 		writeError(w, http.StatusConflict, "already_launched", "this launch has already gone out")
 	default:
@@ -228,6 +231,15 @@ func (c *Captain) retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "retrying"})
+}
+
+func (c *Captain) refreshChannels(w http.ResponseWriter, r *http.Request) {
+	n, err := launch.RefreshChannels(r.Context(), c.deps, launchID(r))
+	if err != nil {
+		c.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"channels": n})
 }
 
 func (c *Captain) repos(w http.ResponseWriter, r *http.Request) {
