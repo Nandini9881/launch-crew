@@ -91,6 +91,7 @@ func main() {
 		AllowLoopback: e2e != nil,
 	}
 	deps := httpserver.Deps{
+		Ready:    pool.Ping,
 		Crew:     api.NewCrew(crewDeps, sessions),
 		Captain:  api.NewCaptain(launchDeps, sessions),
 		Settings: api.NewSettings(crewDeps, sessions, cfg.SupportEmail),

@@ -2,9 +2,11 @@
 package httpserver
 
 import (
+	"context"
 	"embed"
 	"io/fs"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -29,14 +31,29 @@ type Deps struct {
 	Settings http.Handler
 	// E2E serves the test control routes at /e2e; set only when LAUNCHCREW_E2E=1.
 	E2E http.Handler
+	// Ready, when set, is probed by /healthz (the database ping); an error
+	// answers 503 so Fly stops routing to a machine that cannot reach it.
+	Ready func(context.Context) error
 }
+
+// readyTimeout bounds the /healthz probe; Fly's check times out at 3 s.
+const readyTimeout = time.Second
 
 // New returns the application handler.
 func New(deps Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(harden)
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get("/healthz", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		if deps.Ready != nil {
+			ctx, cancel := context.WithTimeout(req.Context(), readyTimeout)
+			defer cancel()
+			if err := deps.Ready(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("unavailable: " + err.Error()))
+				return
+			}
+		}
 		_, _ = w.Write([]byte("ok"))
 	})
 	if oa := deps.BufferOAuth; oa != nil {
