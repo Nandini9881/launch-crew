@@ -22,11 +22,14 @@ var prSuffix = regexp.MustCompile(`\(#(\d+)\)\s*$`)
 
 // PRsBetween lists the merged PRs whose commits are in base...head, oldest first.
 //
-// Each commit is mapped to its PRs with the "pulls associated with a commit"
-// endpoint; when that returns no merged PR (rebase merges, history rewritten
-// after merge) the "(#N)" suffix of the commit subject is used instead. An
-// empty base means a first release: the compare runs from the repository's
-// root commit, so the whole history up to head counts (newest maxCommits).
+// A commit whose subject ends in "(#N)" (squash and merge-commit subjects)
+// names its PR without a request. Only the rest (rebase merges, hand-written
+// subjects) are mapped with the "pulls associated with a commit" endpoint,
+// which keeps a 500-commit release to a handful of calls instead of one per
+// commit. Each PR is then fetched once; a number that is not a merged PR
+// (an issue, another repository's PR) is skipped. An empty base means a
+// first release: the compare runs from the repository's root commit, so the
+// whole history up to head counts (newest maxCommits).
 func (c *Client) PRsBetween(ctx context.Context, installID int64, owner, repo, base, head string) ([]drafting.PR, error) {
 	cl, err := c.installation(installID)
 	if err != nil {
@@ -59,22 +62,17 @@ func (c *Client) PRsBetween(ctx context.Context, installID int64, owner, repo, b
 		}
 	}
 	for _, cm := range shas {
+		if n, ok := subjectPR(cm.message); ok {
+			add(n)
+			continue
+		}
 		prs, _, err := cl.PullRequests.ListPullRequestsWithCommit(ctx, owner, repo, cm.sha, nil)
 		if err != nil {
 			return nil, fmt.Errorf("pulls for %s: %w", cm.sha, err)
 		}
-		found := false
 		for _, p := range prs {
 			if p.MergedAt != nil && p.Number != nil {
 				add(*p.Number)
-				found = true
-			}
-		}
-		if !found {
-			subject, _, _ := strings.Cut(cm.message, "\n")
-			if m := prSuffix.FindStringSubmatch(subject); m != nil {
-				n, _ := strconv.Atoi(m[1])
-				add(n)
 			}
 		}
 	}
@@ -94,6 +92,17 @@ func (c *Client) PRsBetween(ctx context.Context, installID int64, owner, repo, b
 		out = append(out, toPR(p))
 	}
 	return out, nil
+}
+
+// subjectPR reads the "(#N)" GitHub appends to a squash or merge commit subject.
+func subjectPR(message string) (int, bool) {
+	subject, _, _ := strings.Cut(message, "\n")
+	m := prSuffix.FindStringSubmatch(subject)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	return n, err == nil && n > 0
 }
 
 func toPR(p *gh.PullRequest) drafting.PR {
