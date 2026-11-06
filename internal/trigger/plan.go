@@ -34,7 +34,15 @@ func PlanComments(spec LaunchSpec, links map[int64]string, settingsLink string) 
 	p := Plan{PerPR: map[int]string{}}
 	for _, c := range ticked {
 		if l := links[c.GitHubUserID]; l != "" {
-			p.PerPR[c.PRNumber] = comments.Body(spec.Captain, spec.Project(), spec.ReleaseTag, c.PRTitle, l, settingsLink)
+			prs := make([]comments.PR, len(c.PRs))
+			for i, r := range c.PRs {
+				prs[i] = comments.PR{Number: r.Number, Title: r.Title}
+			}
+			if len(prs) == 0 {
+				prs = []comments.PR{{Number: c.PRNumber, Title: c.PRTitle}}
+			}
+			// The comment goes on the most recent PR.
+			p.PerPR[c.PRNumber] = comments.Body(spec.Captain, spec.Project(), spec.ReleaseTag, prs, l, settingsLink)
 		}
 	}
 	return p

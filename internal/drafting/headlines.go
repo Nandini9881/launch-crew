@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 )
@@ -42,6 +43,8 @@ type PR struct {
 	Added       int
 	Deleted     int
 	Labels      []string
+	// MergedAt is when the PR merged; zero when unknown.
+	MergedAt    time.Time
 	AuthorID    int64
 	AuthorLogin string
 	// AuthorType is GitHub's account type ("User", "Bot"); AuthorAvatarURL its avatar.

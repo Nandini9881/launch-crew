@@ -80,3 +80,17 @@ func TestTemplateDiffersByHook(t *testing.T) {
 		t.Errorf("manual personal hook: %q", d.Text)
 	}
 }
+
+func TestTemplateCreditsEveryPR(t *testing.T) {
+	s := Subject{Project: "Launch Crew", Version: "v1.2.0", Headline: "Posts keep voice.", PRTitle: "C", PRTitles: []string{"C", "B", "A"}}
+	if got := templateText(s, HookDetail); !strings.Contains(got, "A few changes in it: C, B and A.") {
+		t.Errorf("detail: %s", got)
+	}
+	if got := templateText(s, HookPersonal); !strings.Contains(got, "I had a hand in Launch Crew v1.2.0: C, B and A.") {
+		t.Errorf("personal: %s", got)
+	}
+	s.PRTitles = []string{"1", "2", "3", "4", "5"}
+	if got := titleList(s.PRTitles); got != "1, 2, 3 and 2 more" {
+		t.Errorf("titleList = %q", got)
+	}
+}

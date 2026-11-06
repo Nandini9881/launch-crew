@@ -347,10 +347,15 @@ func inviteCrew(ctx context.Context, d Deps, s *state) error {
 // contributorCard renders and uploads a member's card and links it.
 func contributorCard(ctx context.Context, d Deps, s *state, m sqlc.CrewMember) (sqlc.CrewMember, error) {
 	preset := cards.PresetFor(s.l.ID)
+	prs := trigger.MemberPRs(ctx, d.Pool, m.ID, m.PrNumber.Int32, m.PrTitle.String)
+	var first trigger.PRRef
+	if len(prs) > 0 {
+		first = prs[0]
+	}
 	png, err := d.render()(cards.ContributorCard{
 		Name:      s.login(ctx, d, m.GithubUserID.Int64),
 		AvatarURL: fmt.Sprintf("https://avatars.githubusercontent.com/u/%d?s=256", m.GithubUserID.Int64),
-		Project:   s.project, Version: s.version(), PRTitle: m.PrTitle.String,
+		Project:   s.project, Version: s.version(), PRTitle: first.Title, PRCount: len(prs),
 	}, preset)
 	if err != nil {
 		return m, fmt.Errorf("render card for %s: %w", m.ID, err)

@@ -264,12 +264,27 @@ func (d Deps) drafter() *drafting.Service {
 	return &drafting.Service{}
 }
 
-func subject(info launchInfo, m sqlc.CrewMember) drafting.Subject {
-	return drafting.Subject{
+// memberPRs is every PR credited to the member, newest first. A member from
+// before several PRs were stored has just pr_number and pr_title.
+func memberPRs(ctx context.Context, d Deps, m sqlc.CrewMember) []trigger.PRRef {
+	if d.Pool == nil {
+		return trigger.MemberPRs(ctx, nil, m.ID, m.PrNumber.Int32, m.PrTitle.String)
+	}
+	return trigger.MemberPRs(ctx, d.Pool, m.ID, m.PrNumber.Int32, m.PrTitle.String)
+}
+
+func subject(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember) drafting.Subject {
+	s := drafting.Subject{
 		Project: info.project, Version: info.version(), URL: info.l.ReleaseUrl.String,
 		Headline: info.headline(), PRTitle: m.PrTitle.String,
 		Role: m.Role, RoleHint: m.RoleHint, TalkTitle: m.TalkTitle,
 	}
+	if prs := memberPRs(ctx, d, m); len(prs) > 1 {
+		for _, p := range prs {
+			s.PRTitles = append(s.PRTitles, p.Title)
+		}
+	}
+	return s
 }
 
 // memberName is the contributor's GitHub login when known, else the role.
@@ -331,7 +346,9 @@ func cardFor(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember, na
 	if m.UserID.Valid && m.CardAssetID.Valid {
 		if a, err := d.Q.GetLaunchAsset(ctx, m.CardAssetID.UUID); err == nil {
 			alt := joinNonEmpty(", shipped in ", firstNonEmpty(name, "A contributor"), joinNonEmpty(" ", info.project, info.version()))
-			if m.PrTitle.String != "" {
+			if prs := memberPRs(ctx, d, m); len(prs) > 1 {
+				alt += fmt.Sprintf(": %d PRs, including %s", len(prs), prs[0].Title)
+			} else if m.PrTitle.String != "" {
 				alt += ": " + m.PrTitle.String
 			}
 			return &AssetView{URL: a.R2Url, Alt: alt}
@@ -358,8 +375,8 @@ func neutralRules() drafting.Rules {
 }
 
 // templatePreview is the neutral preview before one has been generated.
-func templatePreview(ctx context.Context, info launchInfo, m sqlc.CrewMember) string {
-	req := drafting.DraftRequest{Subject: subject(info, m), Hook: drafting.AssignHook(nil), Network: drafting.Twitter, Rules: neutralRules()}
+func templatePreview(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember) string {
+	req := drafting.DraftRequest{Subject: subject(ctx, d, info, m), Hook: drafting.AssignHook(nil), Network: drafting.Twitter, Rules: neutralRules()}
 	td, err := drafting.Template{}.Draft(ctx, req)
 	if err != nil {
 		return ""
@@ -399,7 +416,7 @@ func inviteView(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember)
 	name := memberName(ctx, d, info, m, true)
 	preview := m.NeutralDraft.String
 	if strings.TrimSpace(preview) == "" {
-		preview = templatePreview(ctx, info, m)
+		preview = templatePreview(ctx, d, info, m)
 	}
 	verified := m.UserID.Valid
 	return View{
@@ -575,7 +592,7 @@ func NeutralDraft(ctx context.Context, d Deps, memberID uuid.UUID) (string, erro
 	}
 	voice := drafting.Neutral()
 	res, err := d.drafter().DraftFor(ctx, drafting.DraftRequest{
-		Subject: subject(info, m), Voice: &voice, Hook: drafting.AssignHook(nil),
+		Subject: subject(ctx, d, info, m), Voice: &voice, Hook: drafting.AssignHook(nil),
 		Network: drafting.Twitter, Rules: neutralRules(), AllowModel: true, Avoid: head(recent, avoidInPrompt),
 	}, recent)
 	if err != nil {
@@ -785,7 +802,7 @@ func network(service string) drafting.Network {
 
 func templateDraft(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember, ch buffer.Channel, cfg *buffer.Config, hook drafting.HookType) error {
 	n := network(ch.Service)
-	req := drafting.DraftRequest{Subject: subject(info, m), Hook: hook, Network: n, Rules: drafting.RulesFor(n, cfg)}
+	req := drafting.DraftRequest{Subject: subject(ctx, d, info, m), Hook: hook, Network: n, Rules: drafting.RulesFor(n, cfg)}
 	td, err := drafting.Template{}.Draft(ctx, req)
 	if err != nil {
 		return fmt.Errorf("crew: template draft: %w", err)

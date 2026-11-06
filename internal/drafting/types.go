@@ -65,6 +65,9 @@ type Profile struct {
 // Subject is what a post is about.
 type Subject struct {
 	Project, Version, URL, Headline, PRTitle, Role, RoleHint, TalkTitle string
+	// PRTitles is every PR title the person has in the release, newest first,
+	// when they have more than one. PRTitle stays the most recent.
+	PRTitles []string
 }
 
 // DraftRequest asks a Drafter for one post.

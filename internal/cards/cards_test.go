@@ -187,6 +187,27 @@ func TestRenderGoldenSize(t *testing.T) {
 	}
 }
 
+func TestMultiPRContributorCard(t *testing.T) {
+	long := strings.Repeat("Rework the retry queue so nothing blocks ", 6)
+	for _, title := range []string{"Add Bernoulli number routine", long} {
+		b, err := Render(ContributorCard{Name: "Ada Lovelace", Project: "analytical-engine", Version: "v2.4.0", PRTitle: title, PRCount: 3}, goldenPreset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bd := decodePNG(t, b).Bounds(); bd.Dx() != 1200 || bd.Dy() != 630 {
+			t.Errorf("size = %v", bd)
+		}
+		if title != long {
+			compareGolden(t, "contributor_multi.png", b)
+		}
+	}
+	single, _ := Render(ContributorCard{Name: "Ada Lovelace", Project: "analytical-engine", Version: "v2.4.0", PRTitle: "Add Bernoulli number routine"}, goldenPreset)
+	multi, _ := Render(ContributorCard{Name: "Ada Lovelace", Project: "analytical-engine", Version: "v2.4.0", PRTitle: "Add Bernoulli number routine", PRCount: 3}, goldenPreset)
+	if bytes.Equal(single, multi) {
+		t.Error("multi-PR card renders like a single-PR card")
+	}
+}
+
 func TestLongAndCJKNamesWrap(t *testing.T) {
 	fs, err := loadFonts()
 	if err != nil {
