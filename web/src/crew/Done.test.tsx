@@ -225,3 +225,14 @@ test('a failed drafts fetch on reload never reads as empty; Retry asks again', a
   expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Added to your queue')
   expect(calls.filter((c) => c.url.endsWith('/drafts'))).toHaveLength(2)
 })
+
+test('board copy link falls back to a selected field when the clipboard is blocked', async () => {
+  mockApi({ board: crewOf([row('Ada', 'queued')], 1) })
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+  visit([out({})])
+  await userEvent.click(await screen.findByRole('button', { name: 'Copy link' }))
+  expect(await screen.findByRole('button', { name: 'Select and copy' })).toBeInTheDocument()
+  const field = screen.getByRole('textbox', { name: 'Crew link' }) as HTMLInputElement
+  expect(field).toHaveValue('https://x/r')
+  expect(field).toHaveFocus()
+})

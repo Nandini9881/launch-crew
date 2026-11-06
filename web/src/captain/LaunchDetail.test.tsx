@@ -450,3 +450,16 @@ test('a 404 launch has no Retry, since trying again will not help', async () => 
   expect(await screen.findByRole('heading', { level: 1, name: 'Launch not found' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
 })
+
+test('when the clipboard is blocked the link field is selected and the button says so', async () => {
+  mockApi({ detail: detail({ source: 'manual', openUrl: 'https://lc.test/l/abc' }) })
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } })
+  visit('/captain/launches/l1')
+  const button = await screen.findByRole('button', { name: 'Copy link' })
+  await userEvent.click(button)
+  expect(await screen.findByRole('button', { name: 'Select and copy' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull()
+  const field = screen.getByLabelText('Add by link') as HTMLInputElement
+  expect(field).toHaveFocus()
+  expect(field.selectionEnd! - field.selectionStart!).toBe(field.value.length)
+})

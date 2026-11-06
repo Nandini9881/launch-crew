@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { board, type BoardView } from '../api'
+import { copy as toClipboard } from '../captain/format'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Row from '../components/Row'
@@ -17,8 +18,9 @@ function describe(state: string): { text: string; tone: 'ok' | 'err' | 'muted' }
 export default function Board({ memberId, token, shareUrl }: { memberId: string; token: string; shareUrl: string }) {
   const [data, setData] = useState<BoardView>()
   const [failed, setFailed] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'idle' | 'copied' | 'manual'>('idle')
   const live = useRef(true)
+  const linkField = useRef<HTMLInputElement>(null)
 
   const load = useCallback(() => {
     board(memberId, token).then(
@@ -37,15 +39,17 @@ export default function Board({ memberId, token, shareUrl }: { memberId: string;
     }
   }, [load])
 
+  // Clipboard blocked: show the link in a selected read-only field and say so.
   async function copy() {
     if (!shareUrl) return
-    try {
-      await navigator.clipboard.writeText(shareUrl)
-      setCopied(true)
-    } catch {
-      setCopied(false)
-    }
+    setCopied((await toClipboard(shareUrl)) ? 'copied' : 'manual')
   }
+
+  useEffect(() => {
+    if (copied !== 'manual') return
+    linkField.current?.focus()
+    linkField.current?.select()
+  }, [copied])
 
   const retry = (
     <Alert tone="warning">
@@ -68,7 +72,14 @@ export default function Board({ memberId, token, shareUrl }: { memberId: string;
       {data.total <= 1 && (
         <div className="crew-actions">
           <p className="crew-note">Just you so far. Share the link and the board fills in.</p>
-          {shareUrl && <Button variant="secondary" onClick={copy}>{copied ? 'Copied' : 'Copy link'}</Button>}
+          {shareUrl && (
+            <Button variant="secondary" onClick={copy}>
+              {copied === 'copied' ? 'Copied' : copied === 'manual' ? 'Select and copy' : 'Copy link'}
+            </Button>
+          )}
+          {copied === 'manual' && (
+            <input ref={linkField} className="field" readOnly value={shareUrl} aria-label="Crew link" onFocus={(e) => e.currentTarget.select()} />
+          )}
         </div>
       )}
       <ul className="crew-results">
