@@ -637,3 +637,32 @@ func TestConfigurationFallbackIsCached(t *testing.T) {
 		t.Fatalf("requests after the hour = %d, want 4", n)
 	}
 }
+
+func TestDailyPostingLimitsCachedForAMinute(t *testing.T) {
+	e := setup(t, 3*time.Hour)
+	ctx := context.Background()
+	e.fake.Handle("GetChannels", channelsData)
+	e.fake.Handle("GetDailyPostingLimits", map[string]any{"dailyPostingLimits": []any{
+		map[string]any{"channelId": "ch1", "isAtLimit": true, "limit": 10, "scheduled": 7, "sent": 3},
+	}})
+	for range 3 {
+		limits, err := e.c.DailyPostingLimits(ctx, e.connID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l, ok := limits["ch1"]
+		if !ok || !l.IsAtLimit || l.Limit == nil || *l.Limit != 10 || l.Scheduled != 7 || l.Sent != 3 {
+			t.Fatalf("limits = %+v", limits)
+		}
+	}
+	if n := e.fake.Count("GetDailyPostingLimits"); n != 1 {
+		t.Fatalf("requests = %d, want 1 (cached)", n)
+	}
+	e.clock.Advance(61 * time.Second)
+	if _, err := e.c.DailyPostingLimits(ctx, e.connID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.fake.Count("GetDailyPostingLimits"); n != 2 {
+		t.Fatalf("requests after 61s = %d, want 2", n)
+	}
+}

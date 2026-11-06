@@ -40,6 +40,7 @@ const (
 	maxWait      = 15 * time.Minute // never sleep past one budget window
 	cacheTTL     = time.Hour
 	fallbackTTL  = 15 * time.Minute // built-in rules kept while Buffer's configuration query fails
+	limitsTTL    = time.Minute      // dailyPostingLimits kept in memory per connection
 	refreshFloor = 15 * time.Second // RefreshChannels reuses a cache younger than this
 	refreshLimit = 30 * time.Second
 	maxPage      = 100
@@ -98,6 +99,12 @@ type Client struct {
 	mu      sync.Mutex
 	locks   map[uuid.UUID]*sync.Mutex // per-connection refresh locks
 	windows map[uuid.UUID]int         // largest 15-min quota seen
+	limits  map[uuid.UUID]limitsEntry // DailyPostingLimits answers, limitsTTL old at most
+}
+
+type limitsEntry struct {
+	at     time.Time
+	limits map[string]Limit
 }
 
 // Option configures a Client.
@@ -125,6 +132,7 @@ func New(httpClient *http.Client, q *sqlc.Queries, kr *crypto.Keyring, opts ...O
 		apiURL: defaultAPIURL, tokenURL: defaultTokenURL,
 		now:   time.Now,
 		locks: map[uuid.UUID]*sync.Mutex{}, windows: map[uuid.UUID]int{},
+		limits: map[uuid.UUID]limitsEntry{},
 	}
 	for _, o := range opts {
 		o(c)

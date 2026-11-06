@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -467,8 +468,13 @@ func (c *Client) channelService(ctx context.Context, connID uuid.UUID, channelID
 	return "", fmt.Errorf("buffer: unknown channel %q", channelID)
 }
 
-// DailyPostingLimits returns today's posting limit status for every unlocked channel.
+// DailyPostingLimits returns today's posting limit status for every unlocked
+// channel. The answer is kept in memory for a minute, so the captain page
+// polling preflight does not ask Buffer every time.
 func (c *Client) DailyPostingLimits(ctx context.Context, connID uuid.UUID) (map[string]Limit, error) {
+	if cached, ok := c.cachedLimits(connID); ok {
+		return cached, nil
+	}
 	chs, err := c.Channels(ctx, connID)
 	if err != nil {
 		return nil, err
@@ -497,5 +503,18 @@ func (c *Client) DailyPostingLimits(ctx context.Context, connID uuid.UUID) (map[
 	for _, l := range out.DailyPostingLimits {
 		limits[l.ChannelID] = Limit{IsAtLimit: l.IsAtLimit, Limit: l.Limit, Scheduled: l.Scheduled, Sent: l.Sent}
 	}
-	return limits, nil
+	c.mu.Lock()
+	c.limits[connID] = limitsEntry{at: c.now(), limits: limits}
+	c.mu.Unlock()
+	return maps.Clone(limits), nil
+}
+
+func (c *Client) cachedLimits(connID uuid.UUID) (map[string]Limit, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.limits[connID]
+	if !ok || c.now().Sub(e.at) >= limitsTTL {
+		return nil, false
+	}
+	return maps.Clone(e.limits), true
 }
