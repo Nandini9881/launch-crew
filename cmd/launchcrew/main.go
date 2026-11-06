@@ -37,6 +37,14 @@ import (
 	"github.com/shubham-tomar/launchcrew/internal/webhook"
 )
 
+// On SIGTERM the HTTP server gets shutdownTimeout to finish requests, then
+// the worker gets drainTimeout to finish in-flight jobs. Fly kills the
+// machine kill_timeout (fly.toml) after SIGTERM, which must cover both.
+const (
+	shutdownTimeout = 10 * time.Second
+	drainTimeout    = 15 * time.Second
+)
+
 func main() {
 	cfg, e2e, err := loadConfig()
 	if err != nil {
@@ -143,14 +151,28 @@ func main() {
 	case <-ctx.Done():
 		err = nil
 	}
-	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	sctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	_ = srv.Shutdown(sctx)
 	cancel()
-	<-workerDone
+	if !awaitDrain(workerDone, drainTimeout) {
+		log.Printf("worker did not drain within %s; exiting with jobs in flight", drainTimeout)
+	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Print(err)
 		pool.Close()
 		os.Exit(1)
+	}
+}
+
+// awaitDrain waits for done, giving up after d. It reports whether done closed.
+func awaitDrain(done <-chan struct{}, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+		return true
+	case <-t.C:
+		return false
 	}
 }
 
