@@ -28,6 +28,8 @@ type Patch struct {
 	// QRLogo is plane, none or custom; QRLogoURL is the https image for custom.
 	QRLogo    *string `json:"qrLogo"`
 	QRLogoURL *string `json:"qrLogoUrl"`
+	// IncludeCard says whether the launch's posts lead with the card slot.
+	IncludeCard *bool `json:"includeCard"`
 }
 
 // Validate checks the patch against now.
@@ -144,6 +146,11 @@ func Update(ctx context.Context, d Deps, id uuid.UUID, p Patch) error {
 	}
 	if err := writeLogo(ctx, d, tx, q, id, logo); err != nil {
 		return err
+	}
+	if p.IncludeCard != nil {
+		if err := q.SetLaunchIncludeCard(ctx, sqlc.SetLaunchIncludeCardParams{ID: id, IncludeCard: *p.IncludeCard}); err != nil {
+			return fmt.Errorf("launch: set include card: %w", err)
+		}
 	}
 	// Captain drafts are built from the title, summary and headlines; the
 	// ones not yet sent are dropped so Detail or LaunchJob rebuilds them.
