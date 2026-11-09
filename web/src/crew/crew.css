@@ -579,12 +579,14 @@
   object-fit: cover;
 }
 
+/* The card keeps its 2:1 shape; cropping it to a square would cut the words. */
+.crew-attach-strip .crew-attach-card {
+  inline-size: 128px;
+  aspect-ratio: 2 / 1;
+}
+
 .crew-attach-gone {
-  display: grid;
-  place-items: center;
   block-size: 100%;
   padding: var(--space-xs);
-  color: var(--color-text-muted);
   font-size: var(--type-mono-size);
-  text-align: center;
 }

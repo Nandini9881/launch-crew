@@ -1,6 +1,6 @@
 // Launch images, end to end: the captain adds two images on New launch, they are
-// stored and shown on the launch page, and every captain post carries the card
-// then the images; with the card switch off, only the images.
+// stored as uploaded and shown on the launch page, and every captain post carries
+// the card then the images; with the card switch off, only the images.
 import { expect, test } from '@playwright/test'
 import { control, launchButton, localInput, signInCaptain, until, type Post } from './fixtures/app.ts'
 import { png } from './fixtures/png.ts'
@@ -19,7 +19,7 @@ async function createWithImages(page: import('@playwright/test').Page, title: st
   await page.getByRole('button', { name: 'Create launch' }).click()
   await expect(page).toHaveURL(/\/captain\/launches\/[0-9a-f-]+$/)
   // The stored images, served from the fake R2.
-  await expect(page.getByRole('img', { name: 'Image 2' })).toHaveAttribute('src', /\/uploads\/[0-9a-f]{64}\.jpg$/)
+  await expect(page.getByRole('img', { name: 'Image 2' })).toHaveAttribute('src', /\/uploads\/[0-9a-f]{64}\.png$/)
 }
 
 const captainPosts = async (rq: import('@playwright/test').APIRequestContext) =>
@@ -44,8 +44,8 @@ test('captain posts carry the card then the images', async ({ page, request }) =
   for (const p of posts) {
     expect(p.assets, p.channelId).toHaveLength(3)
     expect(p.assets[0]).toMatch(/\/cards\/[0-9a-f]{64}\.png$/)
-    expect(p.assets[1]).toMatch(/\/uploads\/[0-9a-f]{64}\.jpg$/)
-    expect(p.assets[2]).toMatch(/\/uploads\/[0-9a-f]{64}\.jpg$/)
+    expect(p.assets[1]).toMatch(/\/uploads\/[0-9a-f]{64}\.png$/)
+    expect(p.assets[2]).toMatch(/\/uploads\/[0-9a-f]{64}\.png$/)
     expect(p.assets[1]).not.toBe(p.assets[2])
   }
 })
@@ -59,6 +59,6 @@ test('with the card switch off, posts carry only the images', async ({ page, req
   const posts = await launchAndCollect(page, request, 0)
   for (const p of posts) {
     expect(p.assets, p.channelId).toHaveLength(2)
-    for (const a of p.assets) expect(a).toMatch(/\/uploads\/[0-9a-f]{64}\.jpg$/)
+    for (const a of p.assets) expect(a).toMatch(/\/uploads\/[0-9a-f]{64}\.png$/)
   }
 })

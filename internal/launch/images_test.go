@@ -2,14 +2,16 @@ package launch_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
-	"hash/crc32"
 	"image"
 	"image/color"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -17,26 +19,6 @@ import (
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
 	"github.com/shubham-tomar/launchcrew/internal/launch"
 )
-
-// pngHeader is the start of a PNG claiming w×h: enough for DecodeConfig,
-// without the memory of a real image that size.
-func pngHeader(w, h int) []byte {
-	var b bytes.Buffer
-	b.Write([]byte("\x89PNG\r\n\x1a\n"))
-	ihdr := make([]byte, 13)
-	binary.BigEndian.PutUint32(ihdr[0:], uint32(w))
-	binary.BigEndian.PutUint32(ihdr[4:], uint32(h))
-	ihdr[8], ihdr[9] = 8, 6 // 8-bit RGBA
-	var length [4]byte
-	binary.BigEndian.PutUint32(length[:], 13)
-	b.Write(length[:])
-	chunk := append([]byte("IHDR"), ihdr...)
-	b.Write(chunk)
-	var crc [4]byte
-	binary.BigEndian.PutUint32(crc[:], crc32.ChecksumIEEE(chunk))
-	b.Write(crc[:])
-	return b.Bytes()
-}
 
 func encodePNG(t testing.TB, img image.Image) []byte {
 	t.Helper()
@@ -47,8 +29,7 @@ func encodePNG(t testing.TB, img image.Image) []byte {
 	return b.Bytes()
 }
 
-// redSquarePNG is a solid w×h opaque image whose bytes differ per call site
-// through the colour, so two calls can be made to produce distinct files.
+// solidPNG is a w×h opaque image in one colour; different colours give different bytes.
 func solidPNG(t testing.TB, w, h int, c color.Color) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -60,85 +41,151 @@ func solidPNG(t testing.TB, w, h int, c color.Color) []byte {
 	return encodePNG(t, img)
 }
 
-func TestShrinkToJPEGBounds(t *testing.T) {
-	// 5000×3000 with a transparent corner and an opaque red block in the middle.
-	img := image.NewNRGBA(image.Rect(0, 0, 5000, 3000))
-	for y := 1000; y < 2000; y++ {
-		for x := 2000; x < 3000; x++ {
-			img.Set(x, y, color.NRGBA{220, 20, 20, 255})
+// noisyPNG is random pixels, so it hardly compresses: 900×700 is about 2.5 MB.
+func noisyPNG(t testing.TB, w, h int) []byte {
+	t.Helper()
+	r := rand.New(rand.NewPCG(1, 2))
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := range img.Pix {
+		img.Pix[i] = byte(r.UintN(256))
+	}
+	for i := 3; i < len(img.Pix); i += 4 {
+		img.Pix[i] = 255
+	}
+	return encodePNG(t, img)
+}
+
+// withOrientation inserts an Exif APP1 segment carrying Orientation o after a JPEG's SOI.
+func withOrientation(jpg []byte, o uint16) []byte {
+	tiff := []byte("II*\x00")
+	tiff = binary.LittleEndian.AppendUint32(tiff, 8) // IFD0 at offset 8
+	tiff = binary.LittleEndian.AppendUint16(tiff, 1) // one entry
+	tiff = binary.LittleEndian.AppendUint16(tiff, 0x0112)
+	tiff = binary.LittleEndian.AppendUint16(tiff, 3) // SHORT
+	tiff = binary.LittleEndian.AppendUint32(tiff, 1)
+	tiff = binary.LittleEndian.AppendUint16(tiff, o)
+	tiff = append(tiff, 0, 0)
+	tiff = binary.LittleEndian.AppendUint32(tiff, 0) // no next IFD
+	payload := append([]byte("Exif\x00\x00"), tiff...)
+	seg := []byte{0xFF, 0xE1}
+	seg = binary.BigEndian.AppendUint16(seg, uint16(len(payload)+2))
+	seg = append(seg, payload...)
+	out := append([]byte{}, jpg[:2]...)
+	out = append(out, seg...)
+	return append(out, jpg[2:]...)
+}
+
+// A 1×1 lossy WebP, the smallest valid file; x/image/webp reads its header.
+const tinyWebP = "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA"
+
+func TestSniffAcceptsTheFourFormats(t *testing.T) {
+	var g bytes.Buffer
+	if err := gif.Encode(&g, image.NewPaletted(image.Rect(0, 0, 4, 4), color.Palette{color.Black, color.White}), nil); err != nil {
+		t.Fatal(err)
+	}
+	var j bytes.Buffer
+	if err := jpeg.Encode(&j, image.NewRGBA(image.Rect(0, 0, 4, 4)), nil); err != nil {
+		t.Fatal(err)
+	}
+	webp, err := base64.StdEncoding.DecodeString(tinyWebP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, want string
+		data       []byte
+	}{
+		{"png", "image/png", solidPNG(t, 4, 4, color.White)},
+		{"jpeg", "image/jpeg", j.Bytes()},
+		{"gif", "image/gif", g.Bytes()},
+		{"webp", "image/webp", webp},
+	} {
+		got, err := launch.SniffImage(c.data)
+		if err != nil || got != c.want {
+			t.Errorf("%s: sniff = %q, %v; want %q", c.name, got, err, c.want)
 		}
 	}
-	out, err := launch.ShrinkToJPEG(encodePNG(t, img))
+}
+
+func TestSniffRefusesOtherBytes(t *testing.T) {
+	for name, data := range map[string][]byte{
+		"text": []byte("hello, not an image"),
+		"svg":  []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`),
+		"heic": []byte("\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic"),
+		"html": []byte("<!doctype html><img src=x onerror=alert(1)>"),
+	} {
+		if _, err := launch.SniffImage(data); !errors.Is(err, launch.ErrImageNotImage) {
+			t.Errorf("%s: err = %v, want ErrImageNotImage", name, err)
+		}
+	}
+}
+
+func TestBlueskyCopyFitsUnderOneMB(t *testing.T) {
+	src := noisyPNG(t, 900, 700)
+	if len(src) <= launch.BlueskyMaxBytes {
+		t.Fatalf("fixture is only %d bytes; want over %d", len(src), launch.BlueskyMaxBytes)
+	}
+	out, err := launch.BlueskyCopy(src)
 	if err != nil {
-		t.Fatalf("shrink: %v", err)
+		t.Fatal(err)
+	}
+	if len(out) > launch.BlueskyMaxBytes {
+		t.Errorf("copy is %d bytes, want at most %d", len(out), launch.BlueskyMaxBytes)
 	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(out))
 	if err != nil || format != "jpeg" {
-		t.Fatalf("output format %q err %v", format, err)
+		t.Fatalf("copy format %q err %v", format, err)
 	}
-	if cfg.Width != 4096 || cfg.Height != 2458 {
-		t.Errorf("size = %dx%d, want 4096x2458", cfg.Width, cfg.Height)
+	// Same shape, never wider than the source.
+	if cfg.Width > 900 || cfg.Height > 700 || cfg.Width*700 < cfg.Height*800 {
+		t.Errorf("copy is %dx%d, want ≤ 900x700 at about 9:7", cfg.Width, cfg.Height)
+	}
+}
+
+func TestBlueskyCopyKeepsOrientation(t *testing.T) {
+	// 20 wide × 30 tall: a red block at the top-left, a blue block at the
+	// bottom-left. Blocks, not pixels: JPEG smears colour across 2×2 cells.
+	img := image.NewRGBA(image.Rect(0, 0, 20, 30))
+	for y := 0; y < 30; y++ {
+		for x := 0; x < 20; x++ {
+			c := color.RGBA{255, 255, 255, 255}
+			if x < 10 && y < 10 {
+				c = color.RGBA{255, 0, 0, 255}
+			} else if x < 10 && y >= 20 {
+				c = color.RGBA{0, 0, 255, 255}
+			}
+			img.Set(x, y, c)
+		}
+	}
+	var j bytes.Buffer
+	if err := jpeg.Encode(&j, img, &jpeg.Options{Quality: 100}); err != nil {
+		t.Fatal(err)
+	}
+	src := withOrientation(j.Bytes(), 6) // rotate 90° clockwise to display
+	if got := launch.Orientation(src); got != 6 {
+		t.Fatalf("orientation read back = %d, want 6", got)
+	}
+	out, err := launch.BlueskyCopy(src)
+	if err != nil {
+		t.Fatal(err)
 	}
 	got, err := jpeg.Decode(bytes.NewReader(out))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, g, b, _ := got.At(0, 0).RGBA()
-	if r>>8 < 250 || g>>8 < 250 || b>>8 < 250 {
-		t.Errorf("transparent corner = %d,%d,%d; want white", r>>8, g>>8, b>>8)
+	if b := got.Bounds(); b.Dx() != 30 || b.Dy() != 20 {
+		t.Fatalf("copy is %dx%d, want 30x20 after rotation", b.Dx(), b.Dy())
 	}
-	r, g, b, _ = got.At(2048, 1229).RGBA()
-	if r>>8 < 180 || g>>8 > 80 || b>>8 > 80 {
-		t.Errorf("centre = %d,%d,%d; want red", r>>8, g>>8, b>>8)
+	r, _, bl, _ := got.At(25, 5).RGBA() // red block moved to the top-right
+	if r>>8 < 150 || bl>>8 > 120 {
+		t.Errorf("top-right = r%d b%d, want red", r>>8, bl>>8)
 	}
-}
-
-func TestShrinkKeepsSmallImages(t *testing.T) {
-	out, err := launch.ShrinkToJPEG(solidPNG(t, 300, 200, color.RGBA{0, 0, 200, 255}))
-	if err != nil {
-		t.Fatal(err)
+	r, _, bl, _ = got.At(5, 5).RGBA() // blue block moved to the top-left
+	if bl>>8 < 150 || r>>8 > 120 {
+		t.Errorf("top-left = r%d b%d, want blue", r>>8, bl>>8)
 	}
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(out))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Width != 300 || cfg.Height != 200 {
-		t.Errorf("size = %dx%d, want 300x200 (no upscaling)", cfg.Width, cfg.Height)
-	}
-}
-
-func TestShrinkAcceptsGIFAndJPEG(t *testing.T) {
-	src := image.NewPaletted(image.Rect(0, 0, 10, 10), color.Palette{color.Black, color.White})
-	var g bytes.Buffer
-	if err := gif.Encode(&g, src, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := launch.ShrinkToJPEG(g.Bytes()); err != nil {
-		t.Errorf("gif: %v", err)
-	}
-	var j bytes.Buffer
-	if err := jpeg.Encode(&j, src, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := launch.ShrinkToJPEG(j.Bytes()); err != nil {
-		t.Errorf("jpeg: %v", err)
-	}
-}
-
-func TestShrinkRefusesHugePixels(t *testing.T) {
-	_, err := launch.ShrinkToJPEG(pngHeader(8000, 6000))
-	if !errors.Is(err, launch.ErrImageNotImage) {
-		t.Fatalf("err = %v, want ErrImageNotImage", err)
-	}
-	if !bytes.Contains([]byte(err.Error()), []byte("too large")) {
-		t.Errorf("err = %q, want it to say too large", err)
-	}
-}
-
-func TestShrinkRefusesUndecodable(t *testing.T) {
-	_, err := launch.ShrinkToJPEG([]byte("RIFF....WEBPVP8 this is a HEIC renamed .jpg really"))
-	if !errors.Is(err, launch.ErrImageNotImage) {
-		t.Fatalf("err = %v, want ErrImageNotImage", err)
+	if launch.Orientation(j.Bytes()) != 1 {
+		t.Errorf("a JPEG without Exif reads as %d, want 1", launch.Orientation(j.Bytes()))
 	}
 }
 
@@ -165,7 +212,64 @@ func TestUploadRejectsUndecodable(t *testing.T) {
 	}
 }
 
-func TestAddImageStoresJPEGInOrder(t *testing.T) {
+// The original is stored as uploaded, under its own type; a small file gets no Bluesky copy.
+func TestAddImageStoresTheOriginal(t *testing.T) {
+	e := setup(t)
+	data := solidPNG(t, 20, 10, color.RGBA{255, 0, 0, 255})
+	a, err := launch.AddImage(e.ctx, e.deps, e.launch.ID, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(a.URL, "https://cdn.example/uploads/") || !strings.HasSuffix(a.URL, ".png") {
+		t.Errorf("url = %s, want uploads/<sha>.png", a.URL)
+	}
+	rows := e.images(t)
+	if len(rows) != 1 || rows[0].ID != a.ID {
+		t.Fatalf("rows = %+v", rows)
+	}
+	o, ok := e.r2.Object(strings.TrimPrefix(a.URL, "https://cdn.example/"))
+	if !ok {
+		t.Fatal("no stored object")
+	}
+	if !bytes.Equal(o.Body, data) || o.ContentType != "image/png" {
+		t.Errorf("stored %d bytes as %q, want the original %d bytes as image/png", len(o.Body), o.ContentType, len(data))
+	}
+	if rows[0].Bytes != int64(len(data)) || rows[0].SmallUrl != "" {
+		t.Errorf("bytes = %d small = %q, want %d and no copy", rows[0].Bytes, rows[0].SmallUrl, len(data))
+	}
+	if e.r2.Len() != 1 {
+		t.Errorf("%d objects stored, want 1", e.r2.Len())
+	}
+}
+
+func TestAddImageMakesABlueskyCopyOverOneMB(t *testing.T) {
+	e := setup(t)
+	data := noisyPNG(t, 900, 700)
+	a, err := launch.AddImage(e.ctx, e.deps, e.launch.ID, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := e.images(t)
+	if len(rows) != 1 || rows[0].Bytes != int64(len(data)) {
+		t.Fatalf("rows = %+v", rows)
+	}
+	small := rows[0].SmallUrl
+	if small == "" || !strings.HasSuffix(small, ".jpg") || small == a.URL {
+		t.Fatalf("small = %q, want a separate uploads/<sha>.jpg", small)
+	}
+	o, ok := e.r2.Object(strings.TrimPrefix(small, "https://cdn.example/"))
+	if !ok {
+		t.Fatal("no stored copy")
+	}
+	if len(o.Body) > launch.BlueskyMaxBytes || o.ContentType != "image/jpeg" {
+		t.Errorf("copy is %d bytes as %q", len(o.Body), o.ContentType)
+	}
+	if e.r2.Len() != 2 {
+		t.Errorf("%d objects stored, want the original and the copy", e.r2.Len())
+	}
+}
+
+func TestAddImageKeepsOrder(t *testing.T) {
 	e := setup(t)
 	a, err := launch.AddImage(e.ctx, e.deps, e.launch.ID, solidPNG(t, 20, 10, color.RGBA{255, 0, 0, 255}))
 	if err != nil {
@@ -175,26 +279,12 @@ func TestAddImageStoresJPEGInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ID == b.ID || a.URL == b.URL {
-		t.Errorf("two different images share id or url: %+v %+v", a, b)
-	}
 	rows := e.images(t)
 	if len(rows) != 2 || rows[0].ID != a.ID || rows[1].ID != b.ID {
 		t.Fatalf("rows = %+v, want a then b", rows)
 	}
 	if rows[0].Position.Int16 != 1 || rows[1].Position.Int16 != 2 {
 		t.Errorf("positions = %d,%d, want 1,2", rows[0].Position.Int16, rows[1].Position.Int16)
-	}
-	key := "uploads/" + rows[0].Sha + ".jpg"
-	o, ok := e.r2.Object(key)
-	if !ok {
-		t.Fatalf("no object at %s", key)
-	}
-	if o.ContentType != "image/jpeg" {
-		t.Errorf("content type %q", o.ContentType)
-	}
-	if a.URL != "https://cdn.example/"+key {
-		t.Errorf("url = %s", a.URL)
 	}
 }
 

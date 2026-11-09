@@ -75,7 +75,7 @@ func TestCaptainUploadsAnImage(t *testing.T) {
 		t.Fatalf("upload: %d %v", code, got)
 	}
 	url, _ := got["url"].(string)
-	if !strings.HasPrefix(url, "https://cdn.example/uploads/") || !strings.HasSuffix(url, ".jpg") {
+	if !strings.HasPrefix(url, "https://cdn.example/uploads/") || !strings.HasSuffix(url, ".png") {
 		t.Errorf("url = %q", url)
 	}
 	if _, err := uuid.Parse(got["id"].(string)); err != nil {

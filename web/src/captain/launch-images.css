@@ -59,12 +59,7 @@
 }
 
 .li-gone {
-  display: grid;
-  place-items: center;
-  padding: var(--space-sm);
-  color: var(--color-text-muted);
-  font-size: var(--type-small-size);
-  text-align: center;
+  block-size: 100%;
 }
 
 /* Controls sit along the bottom edge; 36px squares so three fit on a 104px tile. */
@@ -91,8 +86,13 @@
   block-size: 16px;
 }
 
+/* The grid reads left to right, so earlier points left and later points right. */
 .li-earlier svg {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
+}
+
+.li-later svg {
+  transform: rotate(-90deg);
 }
 
 .li-remove {

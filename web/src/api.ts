@@ -20,8 +20,9 @@ export type View = {
   needsVerify: boolean
   connected: boolean
   copyText: string
-  /** The captain's uploads every post carries, in order, after the card when includeCard is on. */
-  images: string[]
+  /** The captain's uploads every post carries, in order, after the card when includeCard is on.
+   * bluesky is what a Bluesky post gets: the original under 1 MB, a smaller copy, or '' for nothing. */
+  images: { url: string; bluesky: string }[]
   includeCard: boolean
 }
 

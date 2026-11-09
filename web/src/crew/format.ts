@@ -6,7 +6,7 @@ export const serviceName = (s: string) => SERVICES[s.toLowerCase()] ?? s
 
 // Images one post takes per network (Buffer's media guide, 2026-11-09); 0 means none.
 const IMAGES: Record<string, number> = {
-  twitter: 4, x: 4, bluesky: 4, mastodon: 4, threads: 20, linkedin: 20, facebook: 10, instagram: 20, tiktok: 10, pinterest: 1, googlebusiness: 1,
+  twitter: 4, x: 4, bluesky: 4, mastodon: 4, threads: 4, linkedin: 20, facebook: 10, instagram: 20, tiktok: 10, pinterest: 1, googlebusiness: 1,
 }
 export const imagesPerPost = (service: string) => IMAGES[service.toLowerCase()] ?? 0
 

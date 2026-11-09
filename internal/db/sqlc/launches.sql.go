@@ -114,7 +114,7 @@ func (q *Queries) DeleteLaunchImage(ctx context.Context, arg DeleteLaunchImagePa
 }
 
 const getLatestLaunchAssetByKind = `-- name: GetLatestLaunchAssetByKind :one
-SELECT id, launch_id, kind, r2_url, sha, position FROM launch_assets WHERE launch_id = $1 AND kind = $2 ORDER BY id DESC LIMIT 1
+SELECT id, launch_id, kind, r2_url, sha, position, bytes, small_url FROM launch_assets WHERE launch_id = $1 AND kind = $2 ORDER BY id DESC LIMIT 1
 `
 
 type GetLatestLaunchAssetByKindParams struct {
@@ -132,6 +132,8 @@ func (q *Queries) GetLatestLaunchAssetByKind(ctx context.Context, arg GetLatestL
 		&i.R2Url,
 		&i.Sha,
 		&i.Position,
+		&i.Bytes,
+		&i.SmallUrl,
 	)
 	return i, err
 }
@@ -174,7 +176,7 @@ func (q *Queries) GetLaunch(ctx context.Context, id uuid.UUID) (Launch, error) {
 }
 
 const getLaunchAsset = `-- name: GetLaunchAsset :one
-SELECT id, launch_id, kind, r2_url, sha, position FROM launch_assets WHERE id = $1
+SELECT id, launch_id, kind, r2_url, sha, position, bytes, small_url FROM launch_assets WHERE id = $1
 `
 
 func (q *Queries) GetLaunchAsset(ctx context.Context, id uuid.UUID) (LaunchAsset, error) {
@@ -187,6 +189,8 @@ func (q *Queries) GetLaunchAsset(ctx context.Context, id uuid.UUID) (LaunchAsset
 		&i.R2Url,
 		&i.Sha,
 		&i.Position,
+		&i.Bytes,
+		&i.SmallUrl,
 	)
 	return i, err
 }
@@ -307,7 +311,7 @@ func (q *Queries) IncrementLaunchOpenCount(ctx context.Context, id uuid.UUID) (i
 }
 
 const insertLaunchAsset = `-- name: InsertLaunchAsset :one
-INSERT INTO launch_assets (launch_id, kind, r2_url, sha) VALUES ($1, $2, $3, $4) RETURNING id, launch_id, kind, r2_url, sha, position
+INSERT INTO launch_assets (launch_id, kind, r2_url, sha) VALUES ($1, $2, $3, $4) RETURNING id, launch_id, kind, r2_url, sha, position, bytes, small_url
 `
 
 type InsertLaunchAssetParams struct {
@@ -332,25 +336,36 @@ func (q *Queries) InsertLaunchAsset(ctx context.Context, arg InsertLaunchAssetPa
 		&i.R2Url,
 		&i.Sha,
 		&i.Position,
+		&i.Bytes,
+		&i.SmallUrl,
 	)
 	return i, err
 }
 
 const insertLaunchImage = `-- name: InsertLaunchImage :one
-INSERT INTO launch_assets (launch_id, kind, r2_url, sha, position)
+INSERT INTO launch_assets (launch_id, kind, r2_url, sha, position, bytes, small_url)
 VALUES ($1, 'image', $2, $3,
-    (SELECT COALESCE(MAX(position), 0) + 1 FROM launch_assets WHERE launch_id = $1 AND kind = 'image'))
-RETURNING id, launch_id, kind, r2_url, sha, position
+    (SELECT COALESCE(MAX(position), 0) + 1 FROM launch_assets WHERE launch_id = $1 AND kind = 'image'),
+    $4, $5)
+RETURNING id, launch_id, kind, r2_url, sha, position, bytes, small_url
 `
 
 type InsertLaunchImageParams struct {
 	LaunchID uuid.UUID `json:"launch_id"`
 	R2Url    string    `json:"r2_url"`
 	Sha      string    `json:"sha"`
+	Bytes    int64     `json:"bytes"`
+	SmallUrl string    `json:"small_url"`
 }
 
 func (q *Queries) InsertLaunchImage(ctx context.Context, arg InsertLaunchImageParams) (LaunchAsset, error) {
-	row := q.db.QueryRow(ctx, insertLaunchImage, arg.LaunchID, arg.R2Url, arg.Sha)
+	row := q.db.QueryRow(ctx, insertLaunchImage,
+		arg.LaunchID,
+		arg.R2Url,
+		arg.Sha,
+		arg.Bytes,
+		arg.SmallUrl,
+	)
 	var i LaunchAsset
 	err := row.Scan(
 		&i.ID,
@@ -359,6 +374,8 @@ func (q *Queries) InsertLaunchImage(ctx context.Context, arg InsertLaunchImagePa
 		&i.R2Url,
 		&i.Sha,
 		&i.Position,
+		&i.Bytes,
+		&i.SmallUrl,
 	)
 	return i, err
 }
@@ -429,7 +446,7 @@ func (q *Queries) ListLaunchAssetURLs(ctx context.Context, launchID uuid.UUID) (
 }
 
 const listLaunchImages = `-- name: ListLaunchImages :many
-SELECT id, launch_id, kind, r2_url, sha, position FROM launch_assets WHERE launch_id = $1 AND kind = 'image' ORDER BY position, id
+SELECT id, launch_id, kind, r2_url, sha, position, bytes, small_url FROM launch_assets WHERE launch_id = $1 AND kind = 'image' ORDER BY position, id
 `
 
 func (q *Queries) ListLaunchImages(ctx context.Context, launchID uuid.UUID) ([]LaunchAsset, error) {
@@ -448,6 +465,8 @@ func (q *Queries) ListLaunchImages(ctx context.Context, launchID uuid.UUID) ([]L
 			&i.R2Url,
 			&i.Sha,
 			&i.Position,
+			&i.Bytes,
+			&i.SmallUrl,
 		); err != nil {
 			return nil, err
 		}

@@ -119,6 +119,8 @@ func (c *Captain) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusBadRequest, "hero_refused", "that image address cannot be used, try another public image URL under 5 MB")
 	case errors.Is(err, trigger.ErrHeroNotImage):
 		writeError(w, http.StatusBadRequest, "hero_not_image", "that URL is not an image")
+	case errors.Is(err, launch.ErrTooBig):
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", imageTooLarge)
 	case errors.Is(err, launch.ErrImageNotImage):
 		writeError(w, http.StatusBadRequest, "not_image", "Use a JPEG, PNG, GIF or WebP image.")
 	case errors.Is(err, launch.ErrTooManyImages):

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ApiError, IMAGE_GONE, connect, disconnect, post, refreshMyChannels, saveDraft, updateVoice, type ApproveView, type Channel, type Outcome, type Timing, type View } from '../api'
+import { ApiError, connect, disconnect, post, refreshMyChannels, saveDraft, updateVoice, type ApproveView, type Channel, type Outcome, type Timing, type View } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Chip from '../components/Chip'
@@ -9,6 +9,7 @@ import DraftBox from '../components/DraftBox'
 import IconButton from '../components/IconButton'
 import Loader from '../components/Loader'
 import Pass from '../components/Pass'
+import SafeImg from '../components/SafeImg'
 import ServiceIcon from '../components/ServiceIcon'
 import VoiceCard, { type VoiceEdit } from '../components/VoiceCard'
 import Results from './Results'
@@ -82,20 +83,18 @@ function TrustStrip({ memberId, token }: { memberId?: string; token: string }) {
   )
 }
 
-// A thumbnail that says so when its picture is gone (uploads expire after 60 days).
-function Thumb({ url, alt }: { url: string; alt: string }) {
-  const [broken, setBroken] = useState(false)
-  return broken ? <span className="crew-attach-gone">{IMAGE_GONE}</span> : <img src={url} alt={alt} onError={() => setBroken(true)} />
-}
-
 // What the posts carry: the card when the captain includes it, then the launch's
 // images; and which of the chosen channels take fewer than that.
 function Attached({ invite, channels }: { invite: View; channels: Channel[] }) {
+  const images = invite.images ?? []
   const items = [
-    ...(invite.includeCard && invite.card ? [{ url: invite.card.url, alt: invite.card.alt }] : []),
-    ...(invite.images ?? []).map((url, i) => ({ url, alt: `Image ${i + 1}` })),
+    ...(invite.includeCard && invite.card ? [{ url: invite.card.url, alt: invite.card.alt, card: true }] : []),
+    ...images.map((im, i) => ({ url: im.url, alt: `Image ${i + 1}`, card: false })),
   ]
   if (items.length === 0) return null
+  // Bluesky holds images to 1 MB and Buffer cannot shrink them; a copy is made where it
+  // can be, the rest are left out of the Bluesky post.
+  const skipped = channels.some((c) => c.service.toLowerCase() === 'bluesky') ? images.filter((im) => !im.bluesky).length : 0
   const byCap = new Map<number, string[]>()
   for (const c of channels) {
     const n = imagesPerPost(c.service)
@@ -109,11 +108,14 @@ function Attached({ invite, channels }: { invite: View; channels: Channel[] }) {
       <p id="crew-attach-head" className="crew-caption crew-fine">Attached to your post</p>
       <ul className="crew-attach-strip" aria-label="Attached to your post">
         {items.map((it, i) => (
-          <li key={`${it.url}-${i}`}>
-            <Thumb url={it.url} alt={it.alt} />
+          <li key={`${it.url}-${i}`} className={it.card ? 'crew-attach-card' : undefined}>
+            <SafeImg src={it.url} alt={it.alt} goneClassName="crew-attach-gone" />
           </li>
         ))}
       </ul>
+      {skipped > 0 && (
+        <p className="crew-note crew-fine">{`Bluesky skips ${skipped} ${skipped === 1 ? 'image' : 'images'} over 1 MB.`}</p>
+      )}
       {[...byCap].map(([n, names]) => (
         <p key={n} className="crew-note crew-fine">
           {`${listNames(names)} ${names.length > 1 ? 'get' : 'gets'} the first ${n}.`}
@@ -284,7 +286,7 @@ export default function Approve() {
     setMessage('')
     try {
       const r = await post(memberId, token, picks.map((d) => ({
-        channelId: d.channelId, text: texts.current[d.id] ?? d.text, timing, assetUrl: invite?.card?.url ?? invite?.images?.[0] ?? '',
+        channelId: d.channelId, text: texts.current[d.id] ?? d.text, timing, assetUrl: invite?.card?.url ?? invite?.images?.[0]?.url ?? '',
       })))
       const all = { ...outcomes, ...Object.fromEntries(r.outcomes.map((o) => [o.channelId, o])) }
       setOutcomes(all)

@@ -38,6 +38,8 @@ type state struct {
 	channelsOK bool // channels came back from Buffer this run
 	order      []buffer.Channel
 	cfg        *buffer.Config
+	// images are the captain's uploads, in posting order.
+	images []crew.Image
 }
 
 func load(ctx context.Context, d Deps, id uuid.UUID) (*state, error) {
@@ -65,6 +67,11 @@ func load(ctx context.Context, d Deps, id uuid.UUID) (*state, error) {
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("launch: captain identity: %w", err)
 	}
+	rows, err := d.Q.ListLaunchImages(ctx, l.ID)
+	if err != nil {
+		return nil, fmt.Errorf("launch: list images: %w", err)
+	}
+	s.images = crew.ImagesOf(rows)
 	return s, nil
 }
 
@@ -218,19 +225,6 @@ func (s *state) cardAsset(ctx context.Context, d Deps) (sqlc.LaunchAsset, bool) 
 	return a, err == nil
 }
 
-// imageURLs are the captain's uploads for this launch, in posting order.
-func (s *state) imageURLs(ctx context.Context, d Deps) ([]string, error) {
-	rows, err := d.Q.ListLaunchImages(ctx, s.l.ID)
-	if err != nil {
-		return nil, fmt.Errorf("launch: list images: %w", err)
-	}
-	urls := make([]string, 0, len(rows))
-	for _, a := range rows {
-		urls = append(urls, a.R2Url)
-	}
-	return urls, nil
-}
-
 // network maps a Buffer service to the drafting network.
 func network(service string) drafting.Network {
 	if s := strings.ToLower(service); s != "x" {
@@ -254,13 +248,16 @@ func ensureCaptainDrafts(ctx context.Context, d Deps, s *state) error {
 		have[cd.ChannelID] = true
 	}
 	asset, hasAsset := s.cardAsset(ctx, d)
+	// A channel that needs an image (Instagram) gets a draft only when the
+	// post would carry one: the card when the launch includes it, or an image.
+	willAttach := (hasAsset && s.l.IncludeCard) || len(s.images) > 0
 	cfg := buffer.Config{}
 	if s.cfg != nil {
 		cfg = *s.cfg
 	}
 	var hooks []drafting.HookType
 	for _, ch := range s.order {
-		if ok, _ := buffer.Eligible(ch, cfg, hasAsset); !ok || have[ch.ID] {
+		if ok, _ := buffer.Eligible(ch, cfg, willAttach); !ok || have[ch.ID] {
 			continue
 		}
 		n := network(ch.Service)
@@ -341,7 +338,6 @@ func runPreflight(ctx context.Context, d Deps, s *state, drafts []sqlc.CaptainDr
 			pl.Assets = append(pl.Assets, preflight.Asset{URL: a.R2Url, Label: "Hero image"})
 		}
 	}
-	images, _ := s.imageURLs(ctx, d)
 	for _, cd := range drafts {
 		ch := s.channels[cd.ChannelID]
 		n := network(ch.Service)
@@ -353,7 +349,7 @@ func runPreflight(ctx context.Context, d Deps, s *state, drafts []sqlc.CaptainDr
 		pl.CaptainDrafts = append(pl.CaptainDrafts, preflight.Draft{
 			ChannelID: cd.ChannelID, Service: ch.Service, Network: string(n), Name: ch.Name,
 			Text: cd.Text, Thread: threadOf(cd.Thread), FirstComment: cd.FirstComment.String,
-			HasAsset: len(crew.Attachments(card, s.l.IncludeCard, images, rules.MaxImages)) > 0,
+			HasAsset: len(crew.Attachments(card, s.l.IncludeCard, s.images, rules.MaxImages, rules.MaxImageBytes)) > 0,
 		})
 	}
 	return preflight.Run(ctx, d.preflightDeps(), pl)

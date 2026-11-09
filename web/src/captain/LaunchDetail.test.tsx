@@ -631,3 +631,10 @@ test('the card switch patches includeCard, and a launched launch locks the image
   expect(await screen.findByText('Images are locked once the launch is out.')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Remove image 1' })).toBeNull()
 })
+
+test('a release card that no longer loads says it was removed', async () => {
+  mockApi({ detail: detail({ cardUrl: 'https://cdn.example/cards/release.png' }) })
+  visit('/captain/launches/l1')
+  fireEvent.error(await screen.findByRole('img', { name: 'Release card for rocket v1.2.0' }))
+  expect(screen.getByText('Removed after 60 days')).toBeInTheDocument()
+})

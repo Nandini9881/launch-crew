@@ -9,8 +9,8 @@ import (
 
 var defaultRules = map[Network]Rules{
 	Twitter:   {MaxChars: 280, Threads: true, ImageOK: true, MaxImages: 4},
-	Bluesky:   {MaxChars: 300, Threads: true, ImageOK: true, MaxImages: 4},
-	Threads:   {MaxChars: 500, Threads: true, ImageOK: true, MaxImages: 20},
+	Bluesky:   {MaxChars: 300, Threads: true, ImageOK: true, MaxImages: 4, MaxImageBytes: 1_000_000},
+	Threads:   {MaxChars: 500, Threads: true, ImageOK: true, MaxImages: 4},
 	Mastodon:  {MaxChars: 500, Threads: true, ImageOK: true, MaxImages: 4},
 	LinkedIn:  {MaxChars: 3000, ImageOK: true, LinkInFirstComment: true, MaxImages: 20},
 	Facebook:  {MaxChars: 3000, ImageOK: true, MaxImages: 10},
@@ -38,14 +38,22 @@ func RulesFor(n Network, cfg *buffer.Config) Rules {
 	if !ok {
 		return def
 	}
-	r := Rules{MaxChars: sr.MaxChars, Threads: sr.Threads, ImageOK: sr.ImageOK, LinkInFirstComment: def.LinkInFirstComment, MaxImages: sr.MaxImages}
+	r := Rules{
+		MaxChars: sr.MaxChars, Threads: sr.Threads, ImageOK: sr.ImageOK, LinkInFirstComment: def.LinkInFirstComment,
+		MaxImages: sr.MaxImages, MaxImageBytes: sr.MaxImageBytes,
+	}
 	if r.MaxChars <= 0 {
 		r.MaxChars = def.MaxChars
 	}
 	if !r.ImageOK {
-		r.MaxImages = 0
-	} else if r.MaxImages <= 0 {
-		r.MaxImages = def.MaxImages
+		r.MaxImages, r.MaxImageBytes = 0, 0
+	} else {
+		if r.MaxImages <= 0 {
+			r.MaxImages = def.MaxImages
+		}
+		if r.MaxImageBytes <= 0 {
+			r.MaxImageBytes = def.MaxImageBytes
+		}
 	}
 	if Network(key) == LinkedIn {
 		r.LinkInFirstComment = sr.FirstComment

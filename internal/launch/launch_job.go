@@ -180,11 +180,7 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 				card = a.R2Url
 			}
 		}
-		images, err := s.imageURLs(ctx, d)
-		if err != nil {
-			return err
-		}
-		in.AssetURLs = crew.Attachments(card, s.l.IncludeCard, images, rules.MaxImages)
+		in.AssetURLs = crew.Attachments(card, s.l.IncludeCard, s.images, rules.MaxImages, rules.MaxImageBytes)
 	}
 	timeout := d.PostTimeout
 	if timeout <= 0 {

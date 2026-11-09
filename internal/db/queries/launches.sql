@@ -74,9 +74,10 @@ SELECT id, r2_url FROM launch_assets WHERE launch_id = $1;
 SELECT * FROM launch_assets WHERE launch_id = $1 AND kind = 'image' ORDER BY position, id;
 
 -- name: InsertLaunchImage :one
-INSERT INTO launch_assets (launch_id, kind, r2_url, sha, position)
+INSERT INTO launch_assets (launch_id, kind, r2_url, sha, position, bytes, small_url)
 VALUES ($1, 'image', $2, $3,
-    (SELECT COALESCE(MAX(position), 0) + 1 FROM launch_assets WHERE launch_id = $1 AND kind = 'image'))
+    (SELECT COALESCE(MAX(position), 0) + 1 FROM launch_assets WHERE launch_id = $1 AND kind = 'image'),
+    $4, $5)
 RETURNING *;
 
 -- name: DeleteLaunchImage :execrows

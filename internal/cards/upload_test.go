@@ -15,31 +15,38 @@ func TestPutImageKeyAndType(t *testing.T) {
 	t.Cleanup(r2.Close)
 	u := cards.NewUploader(r2.URL, "bucket", "key", "secret", "https://cdn.example/")
 
-	jpg := []byte("\xff\xd8\xff\xe0 not really a jpeg but bytes are bytes")
-	sum := sha256.Sum256(jpg)
-	wantSha := hex.EncodeToString(sum[:])
-
-	url, sha, err := u.PutImage(context.Background(), jpg)
-	if err != nil {
-		t.Fatalf("PutImage: %v", err)
+	for _, c := range []struct{ contentType, ext string }{
+		{"image/jpeg", "jpg"}, {"image/png", "png"}, {"image/gif", "gif"}, {"image/webp", "webp"},
+	} {
+		data := []byte("bytes of a " + c.contentType)
+		sum := sha256.Sum256(data)
+		wantSha := hex.EncodeToString(sum[:])
+		url, sha, err := u.PutImage(context.Background(), data, c.contentType)
+		if err != nil {
+			t.Fatalf("%s: PutImage: %v", c.contentType, err)
+		}
+		if sha != wantSha {
+			t.Errorf("%s: sha = %s, want %s", c.contentType, sha, wantSha)
+		}
+		key := "uploads/" + wantSha + "." + c.ext
+		if want := "https://cdn.example/" + key; url != want {
+			t.Errorf("%s: url = %s, want %s", c.contentType, url, want)
+		}
+		o, ok := r2.Object(key)
+		if !ok {
+			t.Fatalf("%s: no object at %s", c.contentType, key)
+		}
+		if o.ContentType != c.contentType {
+			t.Errorf("%s: stored Content-Type = %q", c.contentType, o.ContentType)
+		}
+		if o.CacheControl != "public, max-age=31536000, immutable" {
+			t.Errorf("Cache-Control = %q", o.CacheControl)
+		}
+		if string(o.Body) != string(data) {
+			t.Errorf("%s: stored body differs", c.contentType)
+		}
 	}
-	if sha != wantSha {
-		t.Errorf("sha = %s, want %s", sha, wantSha)
-	}
-	if want := "https://cdn.example/uploads/" + wantSha + ".jpg"; url != want {
-		t.Errorf("url = %s, want %s", url, want)
-	}
-	o, ok := r2.Object("uploads/" + wantSha + ".jpg")
-	if !ok {
-		t.Fatalf("object not stored at uploads/%s.jpg; %d objects", wantSha, r2.Len())
-	}
-	if o.ContentType != "image/jpeg" {
-		t.Errorf("Content-Type = %q, want image/jpeg", o.ContentType)
-	}
-	if o.CacheControl != "public, max-age=31536000, immutable" {
-		t.Errorf("Cache-Control = %q", o.CacheControl)
-	}
-	if string(o.Body) != string(jpg) {
-		t.Errorf("stored body differs")
+	if _, _, err := u.PutImage(context.Background(), []byte("x"), "image/svg+xml"); err == nil {
+		t.Error("an unsupported content type was stored")
 	}
 }

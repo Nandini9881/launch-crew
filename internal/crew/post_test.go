@@ -864,8 +864,12 @@ func TestDraftWriteFailureIsRecordedOnTheAttempt(t *testing.T) {
 }
 
 func (e *env) addImage(t *testing.T, url string) sqlc.LaunchAsset {
+	return e.addSizedImage(t, url, 400_000, "")
+}
+
+func (e *env) addSizedImage(t *testing.T, url string, bytes int64, small string) sqlc.LaunchAsset {
 	t.Helper()
-	a, err := e.q.InsertLaunchImage(context.Background(), sqlc.InsertLaunchImageParams{LaunchID: e.launch.ID, R2Url: url, Sha: url})
+	a, err := e.q.InsertLaunchImage(context.Background(), sqlc.InsertLaunchImageParams{LaunchID: e.launch.ID, R2Url: url, Sha: url, Bytes: bytes, SmallUrl: small})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1004,5 +1008,66 @@ func TestCrewPostImagesWithoutCard(t *testing.T) {
 	}
 	if got := assetURLs(createInputs(e.fake)[0]); !reflect.DeepEqual(got, []string{"https://r2.example/uploads/only.jpg"}) {
 		t.Errorf("assets = %v, want the image alone", got)
+	}
+}
+
+// Bluesky takes images up to 1 MB and Buffer cannot shrink them: an image over
+// it goes as its small copy, one without a copy is left out of that post only.
+func TestBlueskyGetsSmallCopies(t *testing.T) {
+	e := setup(t, channel{"bs", "bluesky", "ana.bsky"}, channel{"x1", "twitter", "@ana"})
+	ctx := context.Background()
+	const card = "https://r2.example/cards/ana.png"
+	e.giveCard(t, card)
+	e.addSizedImage(t, "https://r2.example/uploads/small.png", 500_000, "")
+	e.addSizedImage(t, "https://r2.example/uploads/big.png", 3_000_000, "https://r2.example/uploads/big-small.jpg")
+	e.addSizedImage(t, "https://r2.example/uploads/huge.png", 9_000_000, "")
+	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
+	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{
+		{ChannelID: "bs", Text: "bluesky post", Timing: crew.TimingQueue, AssetURL: card},
+		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: card},
+	})
+	if err != nil || out[0].Status != "queued" || out[1].Status != "queued" {
+		t.Fatalf("post: %+v %v", out, err)
+	}
+	byText := map[string][]string{}
+	for _, in := range createInputs(e.fake) {
+		byText[in["text"].(string)] = assetURLs(in)
+	}
+	want := []string{card, "https://r2.example/uploads/small.png", "https://r2.example/uploads/big-small.jpg"}
+	if !reflect.DeepEqual(byText["bluesky post"], want) {
+		t.Errorf("Bluesky assets = %v, want %v", byText["bluesky post"], want)
+	}
+	want = []string{card, "https://r2.example/uploads/small.png", "https://r2.example/uploads/big.png", "https://r2.example/uploads/huge.png"}
+	if !reflect.DeepEqual(byText["x post"], want) {
+		t.Errorf("X assets = %v, want the originals %v", byText["x post"], want)
+	}
+}
+
+// When the images cannot be read the post is not sent half-dressed: the
+// attempt fails with a retryable note instead.
+func TestCrewPostFailsWhenImagesCannotBeRead(t *testing.T) {
+	e := setup(t, channel{"x1", "twitter", "@ana"})
+	ctx := context.Background()
+	e.giveCard(t, "https://r2.example/cards/ana.png")
+	e.addImage(t, "https://r2.example/uploads/one.png")
+	// Break the image listing for this test only.
+	if _, err := e.pool.Exec(ctx, `ALTER TABLE launch_assets RENAME COLUMN position TO lc_test_hidden`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `ALTER TABLE launch_assets RENAME COLUMN lc_test_hidden TO position`)
+	})
+	e.fake.Script("CreatePost", success("p-1"))
+	// PostAll takes the resolved selection, as Post hands it over once it has
+	// picked the card; the rename above also hides the card from Post itself.
+	out, err := crew.PostAll(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: "https://r2.example/cards/ana.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[0].Status != "failed" || !strings.Contains(out[0].Note, "try again") {
+		t.Errorf("outcome = %+v, want failed with a retry note", out[0])
+	}
+	if n := len(createInputs(e.fake)); n != 0 {
+		t.Errorf("%d posts reached Buffer without their images", n)
 	}
 }

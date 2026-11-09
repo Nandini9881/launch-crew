@@ -218,6 +218,9 @@ func checkRules(ctx context.Context, deps Deps, conn uuid.UUID, drafts []Draft) 
 		if d.HasAsset && !r.ImageOK {
 			return fail(3, name, fmt.Sprintf("%s does not take images. Remove the image from that post.", d.Network))
 		}
+		if !d.HasAsset && strings.EqualFold(d.Network, "instagram") {
+			return fail(3, name, "Instagram post has no image. Turn the card on or add an image.")
+		}
 	}
 	return pass(3, name)
 }

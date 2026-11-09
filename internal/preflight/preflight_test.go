@@ -228,3 +228,25 @@ func TestCrewDraftPassesConnectionID(t *testing.T) {
 		t.Fatalf("config called with %v, want %v", seen, conn)
 	}
 }
+
+func TestRulesInstagramNeedsAnImage(t *testing.T) {
+	f := good()
+	f.l.CaptainDrafts = []Draft{{ChannelID: "ig", Service: "instagram", Network: "instagram", Text: "Shipped.", HasAsset: false}}
+	cs, _ := Run(context.Background(), f.deps, f.l)
+	var rules Check
+	for _, c := range cs {
+		if c.ID == 3 {
+			rules = c
+		}
+	}
+	if rules.OK || rules.Fix != "Instagram post has no image. Turn the card on or add an image." {
+		t.Errorf("check 3 = %+v, want red for an Instagram post without an image", rules)
+	}
+	f.l.CaptainDrafts[0].HasAsset = true
+	cs, _ = Run(context.Background(), f.deps, f.l)
+	for _, c := range cs {
+		if c.ID == 3 && !c.OK {
+			t.Errorf("check 3 red with an image: %s", c.Fix)
+		}
+	}
+}

@@ -1,8 +1,9 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react'
-import { IMAGE_GONE, IMAGE_NOT_IMAGE, IMAGE_TOO_LARGE, IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES, type LaunchImage } from '../api'
+import { IMAGE_NOT_IMAGE, IMAGE_TOO_LARGE, IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES, type LaunchImage } from '../api'
 import Alert from '../components/Alert'
 import Icon from '../components/Icon'
 import IconButton from '../components/IconButton'
+import SafeImg from '../components/SafeImg'
 import Switch from '../components/Switch'
 import './launch-images.css'
 
@@ -31,7 +32,7 @@ export const SMALL_NETWORKS_MAX = 4
 export function capWarning(count: number, includeCard: boolean) {
   if (count <= SMALL_NETWORKS_MAX - 1) return ''
   const n = includeCard ? SMALL_NETWORKS_MAX - 1 : SMALL_NETWORKS_MAX
-  return `X, Bluesky and Mastodon show up to ${SMALL_NETWORKS_MAX} images per post, so posts there get the first ${n} images${includeCard ? ' after the card' : ''}.`
+  return `X, Bluesky, Mastodon and Threads show up to ${SMALL_NETWORKS_MAX} images per post, so posts there get the first ${n} images${includeCard ? ' after the card' : ''}.`
 }
 
 /** Splits picked files into the ones to upload and a line per refused file. */
@@ -61,7 +62,6 @@ function Tile({ img, index, count, locked, onRemove, onMove, drag }: {
   onMove: (id: string, to: number) => void
   drag: { onStart: (id: string) => void; onDrop: (index: number) => void; dragging: boolean }
 }) {
-  const [broken, setBroken] = useState(false)
   const n = index + 1
   return (
     <li
@@ -75,11 +75,7 @@ function Tile({ img, index, count, locked, onRemove, onMove, drag }: {
       }}
     >
       <span className="li-num" aria-hidden="true">{n}</span>
-      {broken ? (
-        <span className="li-gone">{IMAGE_GONE}</span>
-      ) : (
-        <img src={img.url} alt={`Image ${n}`} onError={() => setBroken(true)} />
-      )}
+      <SafeImg src={img.url} alt={`Image ${n}`} goneClassName="li-gone" />
       {!locked && (
         <span className="li-controls">
           <IconButton icon="chevron" className="li-ctl li-earlier" label={`Move image ${n} earlier`} disabled={index === 0} onClick={() => onMove(img.id, index - 1)} />

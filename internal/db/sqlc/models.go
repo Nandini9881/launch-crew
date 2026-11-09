@@ -186,6 +186,8 @@ type LaunchAsset struct {
 	R2Url    string      `json:"r2_url"`
 	Sha      string      `json:"sha"`
 	Position pgtype.Int2 `json:"position"`
+	Bytes    int64       `json:"bytes"`
+	SmallUrl string      `json:"small_url"`
 }
 
 type OpenRate struct {

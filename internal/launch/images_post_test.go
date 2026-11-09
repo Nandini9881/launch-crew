@@ -1,9 +1,9 @@
 package launch_test
 
 import (
-	"fmt"
 	"image/color"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
@@ -103,5 +103,63 @@ func TestLaunchJobNoCardNoImagesSendsNone(t *testing.T) {
 			t.Errorf("%s sent assets %v with the card off and no images", in["channelId"], in["assets"])
 		}
 	}
-	_ = fmt.Sprint
+}
+
+// The captain's Instagram channel only gets a draft when a post would carry
+// something; and a draft made earlier turns preflight red once nothing does.
+func TestInstagramDraftNeedsSomethingToAttach(t *testing.T) {
+	e := setup(t)
+	e.buf.Handle("GetChannels", map[string]any{"channels": []any{
+		map[string]any{"id": "ch-x", "name": "Acme X", "service": "twitter"},
+		map[string]any{"id": "ch-ig", "name": "Acme Instagram", "service": "instagram"},
+	}})
+	if err := e.q.SetLaunchIncludeCard(e.ctx, sqlc.SetLaunchIncludeCardParams{ID: e.launch.ID, IncludeCard: false}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := launch.Detail(e.ctx, e.deps, e.launch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cd := range v.CaptainDrafts {
+		if cd.ChannelID == "ch-ig" {
+			t.Fatalf("an Instagram draft was made with nothing to attach: %+v", cd)
+		}
+	}
+	for _, c := range v.Checks {
+		if !c.OK {
+			t.Errorf("check %q red with no Instagram draft: %s", c.Name, c.Fix)
+		}
+	}
+
+	// Card back on: the Instagram draft appears and preflight is green.
+	if err := e.q.SetLaunchIncludeCard(e.ctx, sqlc.SetLaunchIncludeCardParams{ID: e.launch.ID, IncludeCard: true}); err != nil {
+		t.Fatal(err)
+	}
+	if v, err = launch.Detail(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	var ig bool
+	for _, cd := range v.CaptainDrafts {
+		ig = ig || cd.ChannelID == "ch-ig"
+	}
+	if !ig {
+		t.Fatal("no Instagram draft with the card on")
+	}
+
+	// Card off again with the draft in place: check 3 says why Launch must wait.
+	if err := e.q.SetLaunchIncludeCard(e.ctx, sqlc.SetLaunchIncludeCardParams{ID: e.launch.ID, IncludeCard: false}); err != nil {
+		t.Fatal(err)
+	}
+	if v, err = launch.Detail(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	var rules launch.CheckView
+	for _, c := range v.Checks {
+		if c.ID == 3 {
+			rules = c
+		}
+	}
+	if rules.OK || !strings.Contains(rules.Fix, "Instagram") {
+		t.Errorf("network rules check = %+v, want red naming Instagram", rules)
+	}
 }

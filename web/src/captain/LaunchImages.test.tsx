@@ -67,7 +67,7 @@ test('warns past three images, and the copy follows the card switch', () => {
   expect(screen.queryByRole('status')).toBeNull()
   rerender({ images: imgs(4) })
   expect(screen.getByRole('status')).toHaveTextContent(
-    'X, Bluesky and Mastodon show up to 4 images per post, so posts there get the first 3 images after the card.',
+    'X, Bluesky, Mastodon and Threads show up to 4 images per post, so posts there get the first 3 images after the card.',
   )
   rerender({ images: imgs(4), includeCard: false })
   expect(screen.getByRole('status')).toHaveTextContent('so posts there get the first 4 images.')

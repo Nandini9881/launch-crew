@@ -40,10 +40,17 @@ func (u *Uploader) Put(ctx context.Context, png []byte) (url, sha string, err er
 	return u.put(ctx, "cards", ".png", "image/png", png)
 }
 
-// PutImage stores a captain's upload, already shrunk to a JPEG, at
-// uploads/<sha256>.jpg and returns its public URL and the hash.
-func (u *Uploader) PutImage(ctx context.Context, jpg []byte) (url, sha string, err error) {
-	return u.put(ctx, "uploads", ".jpg", "image/jpeg", jpg)
+// imageExts maps the image types a captain may upload to their stored extension.
+var imageExts = map[string]string{"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp"}
+
+// PutImage stores a captain's upload as it is, at uploads/<sha256>.<ext> with
+// its real content type, and returns its public URL and the hash.
+func (u *Uploader) PutImage(ctx context.Context, data []byte, contentType string) (url, sha string, err error) {
+	ext, ok := imageExts[contentType]
+	if !ok {
+		return "", "", fmt.Errorf("cards: unsupported image type %q", contentType)
+	}
+	return u.put(ctx, "uploads", "."+ext, contentType, data)
 }
 
 func (u *Uploader) put(ctx context.Context, dir, ext, contentType string, body []byte) (url, sha string, err error) {

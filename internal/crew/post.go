@@ -395,7 +395,11 @@ func (p *poster) attempt(ctx context.Context, j *job) Outcome {
 	}
 	// Resolved now, not when the person approved: an image the captain
 	// removed since is not sent, one they added since is.
-	assets := p.attachments(ctx, j)
+	assets, err := p.attachments(ctx, j)
+	if err != nil {
+		log.Printf("crew: images for %s: %v", p.launch.ID, err)
+		return j.fail(noteOurs)
+	}
 	checkURL := ""
 	if len(assets) > 0 {
 		checkURL = assets[0]
@@ -467,23 +471,21 @@ func (p *poster) attempt(ctx context.Context, j *job) Outcome {
 // launch includes the card slot) and the launch's current images, cut to
 // the network's limit. sel.AssetURL carries the intent: Post sets it to the
 // card, or to an image when the member has no card.
-func (p *poster) attachments(ctx context.Context, j *job) []string {
+func (p *poster) attachments(ctx context.Context, j *job) ([]string, error) {
 	if j.sel.AssetURL == "" || !j.rules.ImageOK {
-		return nil
+		return nil, nil
 	}
 	rows, err := p.deps.Q.ListLaunchImages(ctx, p.launch.ID)
 	if err != nil {
-		log.Printf("crew: images for %s: %v", p.launch.ID, err)
+		return nil, err
 	}
-	images := make([]string, 0, len(rows))
 	card := j.sel.AssetURL
 	for _, a := range rows {
-		images = append(images, a.R2Url)
 		if a.R2Url == card {
 			card = ""
 		}
 	}
-	return Attachments(card, p.launch.IncludeCard, images, j.rules.MaxImages)
+	return Attachments(card, p.launch.IncludeCard, ImagesOf(rows), j.rules.MaxImages, j.rules.MaxImageBytes), nil
 }
 
 // fit sets the text, thread and first comment to send and reports whether
