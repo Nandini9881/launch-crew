@@ -60,6 +60,8 @@ type Deps struct {
 	Buffer *buffer.Client
 	GitHub *github.Client
 	Cards  trigger.CardStore
+	// Images stores captain uploads; Cards when nil and it can.
+	Images ImageStore
 	// Render draws cards; cards.Render when nil.
 	Render    func(c any, p cards.Preset) ([]byte, error)
 	Preflight preflight.Deps

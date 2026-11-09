@@ -3,13 +3,11 @@ package launch
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
@@ -98,18 +96,8 @@ func Update(ctx context.Context, d Deps, id uuid.UUID, p Patch) error {
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	// Lock the row so a concurrent Launch cannot slip between check and write.
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM launches WHERE id = $1 FOR UPDATE`, id).Scan(&status); errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
+	if err := lockDraft(ctx, tx, id, ErrNotDraft); err != nil {
 		return err
-	}
-	switch status {
-	case statusDeleted:
-		return ErrNotFound
-	case statusDraft:
-	default:
-		return ErrNotDraft
 	}
 	q := sqlc.New(tx)
 	l, err := q.GetLaunch(ctx, id)
