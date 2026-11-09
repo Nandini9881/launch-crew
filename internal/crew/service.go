@@ -108,6 +108,10 @@ type View struct {
 	// connection that belongs to this member; the page offers Continue instead
 	// of sending them through Buffer's consent again. Set by the API.
 	Connected bool `json:"connected"`
+	// Images are the captain's uploads every post carries, in order;
+	// IncludeCard says whether the card slot leads them.
+	Images      []string `json:"images"`
+	IncludeCard bool     `json:"includeCard"`
 }
 
 // LaunchView is the public open-link page.
@@ -451,11 +455,20 @@ func inviteView(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember)
 		preview = templatePreview(ctx, d, info, m)
 	}
 	verified := m.UserID.Valid
+	images := []string{}
+	if rows, err := d.Q.ListLaunchImages(ctx, info.l.ID); err != nil {
+		log.Printf("crew: images for %s: %v", info.l.ID, err)
+	} else {
+		for _, a := range rows {
+			images = append(images, a.R2Url)
+		}
+	}
 	return View{
 		Launch: summaryOf(d, info),
 		Member: MemberSummary{ID: m.ID, Name: name, Role: m.Role, RoleHint: m.RoleHint, State: m.State, Verified: verified},
 		Card:   cardFor(ctx, d, info, m, name), Preview: preview, Verified: verified, CopyText: preview,
 		NeedsVerify: unverified(m),
+		Images:      images, IncludeCard: info.l.IncludeCard,
 	}
 }
 

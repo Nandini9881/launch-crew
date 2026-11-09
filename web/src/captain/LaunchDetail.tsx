@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { useParams } from 'react-router'
-import { pressLaunch, refreshChannels, retryComment, retryJob, type Detail, type Patch } from '../api'
+import { useRef, useState } from 'react'
+import { useLocation, useParams } from 'react-router'
+import { MAX_IMAGES, orderLaunchImages, pressLaunch, refreshChannels, removeLaunchImage, retryComment, retryJob, uploadLaunchImage, type Detail, type Patch } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Icon from '../components/Icon'
@@ -8,6 +8,7 @@ import { SkeletonPanel } from '../components/Skeleton'
 import Plane from '../components/Plane'
 import Crew from './Crew'
 import Frame from './Frame'
+import LaunchImages, { type Pending } from './LaunchImages'
 import { asError, moment, plusMinutes, stamp, stateTone, until, zone } from './format'
 import Preflight from './Preflight'
 import Review from './Review'
@@ -68,6 +69,110 @@ function Steps({ detail, launched }: { detail: Detail; launched: boolean }) {
 }
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+
+/** An upload New launch could not finish, named on the launch page. */
+export type FailedUpload = { name: string; error: string }
+
+// The launch's images: uploads go up one at a time; remove and reorder apply at once
+// and roll back if the server refuses.
+function Images({ id, detail, locked, failed, mutate, onIncludeCard, onError }: {
+  id: string
+  detail: Detail
+  locked: boolean
+  failed: FailedUpload[]
+  mutate: (fn: (d: Detail) => Detail) => void
+  onIncludeCard: (v: boolean) => void
+  onError: (message: string) => void
+}) {
+  const [pending, setPending] = useState<Pending[]>(() => failed.map((f) => ({ name: f.name, progress: 0, error: f.error })))
+  const queue = useRef<File[]>([])
+  const draining = useRef(false)
+
+  // The first pending entry for this file that is still in flight.
+  const inFlight = (ps: Pending[], name: string) => ps.findIndex((p) => p.name === name && !p.error)
+
+  async function drain() {
+    if (draining.current) return
+    draining.current = true
+    while (queue.current.length) {
+      const f = queue.current.shift()!
+      try {
+        const img = await uploadLaunchImage(id, f, (frac) =>
+          setPending((ps) => {
+            const i = inFlight(ps, f.name)
+            return i < 0 ? ps : ps.map((p, j) => (j === i ? { ...p, progress: frac * 100 } : p))
+          }),
+        )
+        setPending((ps) => {
+          const i = inFlight(ps, f.name)
+          return i < 0 ? ps : ps.filter((_, j) => j !== i)
+        })
+        mutate((d) => ({ ...d, images: [...d.images, img] }))
+      } catch (e) {
+        const message = asError(e).message
+        setPending((ps) => {
+          const i = inFlight(ps, f.name)
+          return i < 0 ? ps : ps.map((p, j) => (j === i ? { ...p, error: message } : p))
+        })
+      }
+    }
+    draining.current = false
+  }
+
+  function add(files: File[]) {
+    setPending((ps) => [...ps, ...files.map((f) => ({ name: f.name, progress: 0 }))])
+    queue.current.push(...files)
+    void drain()
+  }
+
+  async function remove(imageId: string) {
+    const before = detail.images
+    mutate((d) => ({ ...d, images: d.images.filter((i) => i.id !== imageId) }))
+    try {
+      await removeLaunchImage(id, imageId)
+    } catch (e) {
+      mutate((d) => ({ ...d, images: before }))
+      onError(asError(e).message)
+    }
+  }
+
+  async function move(imageId: string, to: number) {
+    const before = detail.images
+    const next = [...before]
+    const from = next.findIndex((i) => i.id === imageId)
+    if (from < 0 || to < 0 || to >= next.length || from === to) return
+    const [it] = next.splice(from, 1)
+    next.splice(to, 0, it)
+    mutate((d) => ({ ...d, images: next }))
+    try {
+      await orderLaunchImages(id, next.map((i) => i.id))
+    } catch (e) {
+      mutate((d) => ({ ...d, images: before }))
+      onError(asError(e).message)
+    }
+  }
+
+  return (
+    <section className="cap-section panel" aria-labelledby="cap-images">
+      <div className="cap-section-head">
+        <h2 id="cap-images">Images</h2>
+        <span className="cap-muted">{detail.images.length} of {MAX_IMAGES}</span>
+      </div>
+      <p className="cap-muted">Every crew and captain post carries these, in this order.</p>
+      <LaunchImages
+        images={detail.images}
+        includeCard={detail.includeCard}
+        locked={locked}
+        pending={pending}
+        onAdd={add}
+        onRemove={remove}
+        onMove={move}
+        onIncludeCard={onIncludeCard}
+        onDismiss={(i) => setPending((ps) => ps.filter((_, j) => j !== i))}
+      />
+    </section>
+  )
+}
 
 // The launch's pass: what it is, who is in, and when the window opens.
 function Hero({ detail, launched }: { detail: Detail; launched: boolean }) {
@@ -133,7 +238,8 @@ function Hero({ detail, launched }: { detail: Detail; launched: boolean }) {
 
 export default function LaunchDetail() {
   const id = useParams().id ?? ''
-  const { detail, error, reload, patch, editDraft, skipDraft } = useLaunch(id)
+  const failedUploads = (useLocation().state as { failedUploads?: FailedUpload[] } | null)?.failedUploads ?? []
+  const { detail, error, reload, patch, editDraft, skipDraft, mutate } = useLaunch(id)
   const [pending, setPending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string>()
@@ -246,6 +352,17 @@ export default function LaunchDetail() {
               return r.channels
             }}
           />
+          {(detail.status === 'draft' || detail.images.length > 0 || failedUploads.length > 0) && (
+            <Images
+              id={id}
+              detail={detail}
+              locked={launched}
+              failed={failedUploads}
+              mutate={mutate}
+              onIncludeCard={(includeCard) => save({ includeCard })}
+              onError={setNotice}
+            />
+          )}
           <Crew
             detail={detail}
             pending={pending}

@@ -479,3 +479,31 @@ test('a 401 sends the person to reconnect once; a second 401 straight after show
   expect(assign).not.toHaveBeenCalled()
   sessionStorage.clear()
 })
+
+test('shows what attaches: the card then the images, and that X gets the first 4', async () => {
+  const images = ['https://r2/u/1.jpg', 'https://r2/u/2.jpg', 'https://r2/u/3.jpg', 'https://r2/u/4.jpg']
+  const view = { ...invite, card: { url: 'https://r2/ada.png', alt: 'Ada card' }, includeCard: true, images } as unknown as View
+  mockApi({ connect: approveView({ channels: [X], drafts: [dr('d1', 'c1', 'template one')] }), invite: view })
+  visit()
+  const strip = await screen.findByRole('list', { name: 'Attached to your post' })
+  expect(within(strip).getAllByRole('img').map((i) => i.getAttribute('src'))).toEqual(['https://r2/ada.png', ...images])
+  // The note waits for the channels: it names only the ones the person has ticked.
+  expect(await screen.findByText('X gets the first 4.')).toBeInTheDocument()
+})
+
+test('with the card switch off the strip has only the images, and small strips carry no note', async () => {
+  const images = ['https://r2/u/1.jpg', 'https://r2/u/2.jpg']
+  const view = { ...invite, card: { url: 'https://r2/ada.png', alt: 'Ada card' }, includeCard: false, images } as unknown as View
+  mockApi({ connect: approveView({ channels: [X], drafts: [dr('d1', 'c1', 'template one')] }), invite: view })
+  visit()
+  const strip = await screen.findByRole('list', { name: 'Attached to your post' })
+  expect(within(strip).getAllByRole('img').map((i) => i.getAttribute('src'))).toEqual(images)
+  expect(screen.queryByText(/gets the first/)).toBeNull()
+})
+
+test('no images and no card means no strip', async () => {
+  mockApi()
+  visit()
+  await screen.findByRole('button', { name: 'Add to my queue' })
+  expect(screen.queryByRole('list', { name: 'Attached to your post' })).toBeNull()
+})

@@ -20,6 +20,9 @@ export type View = {
   needsVerify: boolean
   connected: boolean
   copyText: string
+  /** The captain's uploads every post carries, in order, after the card when includeCard is on. */
+  images: string[]
+  includeCard: boolean
 }
 
 export class ApiError extends Error {
@@ -275,6 +278,8 @@ export const MAX_IMAGE_BYTES = 10 << 20
 export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 export const IMAGE_TOO_LARGE = 'Each image can be up to 10 MB.'
 export const IMAGE_NOT_IMAGE = 'Use a JPEG, PNG, GIF or WebP image.'
+/** What a tile says when its picture no longer loads: R2 drops uploads after 60 days. */
+export const IMAGE_GONE = 'Removed after 60 days'
 export type QrLogo = 'plane' | 'none' | 'custom'
 
 export type NewLaunch = {

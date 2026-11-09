@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ApiError, connect, disconnect, post, refreshMyChannels, saveDraft, updateVoice, type ApproveView, type Outcome, type Timing } from '../api'
+import { ApiError, IMAGE_GONE, connect, disconnect, post, refreshMyChannels, saveDraft, updateVoice, type ApproveView, type Channel, type Outcome, type Timing, type View } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
 import Chip from '../components/Chip'
@@ -12,7 +12,7 @@ import Pass from '../components/Pass'
 import ServiceIcon from '../components/ServiceIcon'
 import VoiceCard, { type VoiceEdit } from '../components/VoiceCard'
 import Results from './Results'
-import { serviceName } from './format'
+import { imagesPerPost, listNames, serviceName } from './format'
 import { CrewFrame, Dead, Foreign, useInvite } from './shared'
 import { useDrafts } from './useDrafts'
 
@@ -79,6 +79,47 @@ function TrustStrip({ memberId, token }: { memberId?: string; token: string }) {
       any time
     </p>
     </>
+  )
+}
+
+// A thumbnail that says so when its picture is gone (uploads expire after 60 days).
+function Thumb({ url, alt }: { url: string; alt: string }) {
+  const [broken, setBroken] = useState(false)
+  return broken ? <span className="crew-attach-gone">{IMAGE_GONE}</span> : <img src={url} alt={alt} onError={() => setBroken(true)} />
+}
+
+// What the posts carry: the card when the captain includes it, then the launch's
+// images; and which of the chosen channels take fewer than that.
+function Attached({ invite, channels }: { invite: View; channels: Channel[] }) {
+  const items = [
+    ...(invite.includeCard && invite.card ? [{ url: invite.card.url, alt: invite.card.alt }] : []),
+    ...(invite.images ?? []).map((url, i) => ({ url, alt: `Image ${i + 1}` })),
+  ]
+  if (items.length === 0) return null
+  const byCap = new Map<number, string[]>()
+  for (const c of channels) {
+    const n = imagesPerPost(c.service)
+    if (n <= 0 || n >= items.length) continue
+    const names = byCap.get(n) ?? []
+    if (!names.includes(serviceName(c.service))) names.push(serviceName(c.service))
+    byCap.set(n, names)
+  }
+  return (
+    <section className="crew-attach" aria-labelledby="crew-attach-head">
+      <p id="crew-attach-head" className="crew-caption crew-fine">Attached to your post</p>
+      <ul className="crew-attach-strip" aria-label="Attached to your post">
+        {items.map((it, i) => (
+          <li key={`${it.url}-${i}`}>
+            <Thumb url={it.url} alt={it.alt} />
+          </li>
+        ))}
+      </ul>
+      {[...byCap].map(([n, names]) => (
+        <p key={n} className="crew-note crew-fine">
+          {`${listNames(names)} ${names.length > 1 ? 'get' : 'gets'} the first ${n}.`}
+        </p>
+      ))}
+    </section>
   )
 }
 
@@ -243,7 +284,7 @@ export default function Approve() {
     setMessage('')
     try {
       const r = await post(memberId, token, picks.map((d) => ({
-        channelId: d.channelId, text: texts.current[d.id] ?? d.text, timing, assetUrl: invite?.card?.url ?? '',
+        channelId: d.channelId, text: texts.current[d.id] ?? d.text, timing, assetUrl: invite?.card?.url ?? invite?.images?.[0] ?? '',
       })))
       const all = { ...outcomes, ...Object.fromEntries(r.outcomes.map((o) => [o.channelId, o])) }
       setOutcomes(all)
@@ -329,6 +370,7 @@ export default function Approve() {
         )
       )}
       <div className="perf perf-h crew-perf" aria-hidden="true" />
+      {invite && <Attached invite={invite} channels={channels.filter((c) => checked[c.id])} />}
       {message && <Alert tone="error">{message}</Alert>}
       <div className="crew-stack" aria-busy={!data || undefined}>
         {!data ? (

@@ -1,8 +1,9 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import App from '../App'
 import type { Check, Detail, LaunchSummary } from '../api'
+import { pngFile, stubXhr } from '../test/xhr'
 
 const checks = (red: number): Check[] =>
   Array.from({ length: 7 }, (_, i) => ({
@@ -584,4 +585,49 @@ test('the release card and each crew card open from a fold', async () => {
   expect(cards).toHaveLength(1) // bob has no card yet
   await userEvent.click(cards[0])
   expect(screen.getByRole('img', { name: 'Contributor card for ada' })).toHaveAttribute('src', 'https://cdn.example/cards/ada.png')
+})
+
+test('uploads picked files one after the other and shows them', async () => {
+  const sent = stubXhr([
+    { status: 201, body: { id: 'i1', url: 'https://cdn.example/uploads/1.jpg' } },
+    { status: 201, body: { id: 'i2', url: 'https://cdn.example/uploads/2.jpg' } },
+  ])
+  mockApi()
+  visit('/captain/launches/l1')
+  fireEvent.change(await screen.findByLabelText('Add images'), { target: { files: [pngFile('a.png'), pngFile('b.png')] } })
+  expect(await screen.findByRole('img', { name: 'Image 2' })).toHaveAttribute('src', 'https://cdn.example/uploads/2.jpg')
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'https://cdn.example/uploads/1.jpg')
+  expect(sent.map((s) => s.file.name)).toEqual(['a.png', 'b.png'])
+  expect(sent[0].url).toBe('/api/captain/launches/l1/images')
+  expect(sent[1].completedBefore).toBe(1)
+  expect(screen.queryByRole('progressbar')).toBeNull()
+})
+
+test('removing an image calls DELETE and drops the tile at once', async () => {
+  const calls = mockApi({ detail: detail({ images: [{ id: 'i1', url: 'https://cdn.example/uploads/1.jpg' }, { id: 'i2', url: 'https://cdn.example/uploads/2.jpg' }] }) })
+  visit('/captain/launches/l1')
+  await userEvent.click(await screen.findByRole('button', { name: 'Remove image 1' }))
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'https://cdn.example/uploads/2.jpg')
+  expect(screen.queryByRole('img', { name: 'Image 2' })).toBeNull()
+  await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/captain/launches/l1/images/i1')).toBe(true))
+})
+
+test('moving an image later sends the new order', async () => {
+  const calls = mockApi({ detail: detail({ images: [{ id: 'i1', url: 'u1' }, { id: 'i2', url: 'u2' }, { id: 'i3', url: 'u3' }] }) })
+  visit('/captain/launches/l1')
+  await userEvent.click(await screen.findByRole('button', { name: 'Move image 1 later' }))
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'u2')
+  await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/images/order'))?.body).toEqual({ ids: ['i2', 'i1', 'i3'] }))
+})
+
+test('the card switch patches includeCard, and a launched launch locks the images', async () => {
+  const calls = mockApi({ detail: detail({ images: [{ id: 'i1', url: 'u1' }] }) })
+  visit('/captain/launches/l1')
+  await userEvent.click(await screen.findByRole('switch', { name: 'Put the release card first' }))
+  await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ includeCard: false }))
+  cleanup()
+  mockApi({ detail: detail({ status: 'launched', launchAt: new Date(Date.now() + 3_600_000).toISOString(), images: [{ id: 'i1', url: 'u1' }] }) })
+  visit('/captain/launches/l1')
+  expect(await screen.findByText('Images are locked once the launch is out.')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Remove image 1' })).toBeNull()
 })

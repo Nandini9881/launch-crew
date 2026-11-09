@@ -549,3 +549,42 @@
 .crew-refresh {
   align-self: center;
 }
+
+/* What attaches to the post: a strip of small square thumbnails under the card. */
+.crew-attach {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.crew-attach-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crew-attach-strip li {
+  inline-size: 64px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--rounded-mark);
+  background-color: var(--color-tint);
+}
+
+.crew-attach-strip img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.crew-attach-gone {
+  display: grid;
+  place-items: center;
+  block-size: 100%;
+  padding: var(--space-xs);
+  color: var(--color-text-muted);
+  font-size: var(--type-mono-size);
+  text-align: center;
+}

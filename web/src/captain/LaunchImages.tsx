@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type DragEvent } from 'react'
-import { IMAGE_NOT_IMAGE, IMAGE_TOO_LARGE, IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES, type LaunchImage } from '../api'
+import { IMAGE_GONE, IMAGE_NOT_IMAGE, IMAGE_TOO_LARGE, IMAGE_TYPES, MAX_IMAGES, MAX_IMAGE_BYTES, type LaunchImage } from '../api'
 import Alert from '../components/Alert'
 import Icon from '../components/Icon'
 import IconButton from '../components/IconButton'
@@ -25,7 +25,6 @@ type Props = {
 }
 
 export const LOCKED = 'Images are locked once the launch is out.'
-export const REMOVED = 'Removed after 60 days'
 export const SMALL_NETWORKS_MAX = 4
 
 /** The networks that take the fewest images, and what they get. */
@@ -77,7 +76,7 @@ function Tile({ img, index, count, locked, onRemove, onMove, drag }: {
     >
       <span className="li-num" aria-hidden="true">{n}</span>
       {broken ? (
-        <span className="li-gone">{REMOVED}</span>
+        <span className="li-gone">{IMAGE_GONE}</span>
       ) : (
         <img src={img.url} alt={`Image ${n}`} onError={() => setBroken(true)} />
       )}

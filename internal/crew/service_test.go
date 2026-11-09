@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -804,5 +805,31 @@ func TestConnectedForOnlyTheMembersOwnHealthyConnection(t *testing.T) {
 	}
 	if crew.ConnectedFor(s.ctx, s.deps, id, owner.ID) {
 		t.Fatal("needs_reconnect counted as connected")
+	}
+}
+
+// The invite view carries what the posts will attach, so the approve screen
+// can show it: the launch's images in order and whether the card leads.
+func TestOpenViewListsImages(t *testing.T) {
+	s := newSvc(t)
+	urls := []string{"https://cdn.test/uploads/a.jpg", "https://cdn.test/uploads/b.jpg"}
+	for _, u := range urls {
+		if _, err := s.q.InsertLaunchImage(s.ctx, sqlc.InsertLaunchImageParams{LaunchID: s.launch.ID, R2Url: u, Sha: u}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.q.SetLaunchIncludeCard(s.ctx, sqlc.SetLaunchIncludeCardParams{ID: s.launch.ID, IncludeCard: false}); err != nil {
+		t.Fatal(err)
+	}
+	_, tok := s.ghMember(t, "ticked", s.now.Add(24*time.Hour))
+	v, err := crew.Open(s.ctx, s.deps, tok, net.ParseIP("10.0.0.9"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(v.Images, urls) {
+		t.Errorf("images = %v, want %v", v.Images, urls)
+	}
+	if v.IncludeCard {
+		t.Error("includeCard = true, want false")
 	}
 }
