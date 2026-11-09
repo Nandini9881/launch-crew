@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import type { Repo } from '../api'
 import Repos from './Repos'
 
-const repo = (over: Partial<Repo> = {}): Repo => ({ id: 'r1', fullName: 'acme/rocket', enabled: true, allowPrerelease: false, logoUrl: '', accent: '', ...over })
+const repo = (over: Partial<Repo> = {}): Repo => ({ id: 'r1', fullName: 'acme/rocket', enabled: true, allowPrerelease: false, logoUrl: '', accent: '', background: '', text: '', templateId: '', ...over })
 
 function setup(list: Repo[]) {
   const calls: { method: string; url: string; body?: unknown }[] = []
@@ -14,6 +14,9 @@ function setup(list: Repo[]) {
       const method = init?.method ?? 'GET'
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ method, url, body })
+      if (url.endsWith('/templates')) {
+        return Promise.resolve(new Response(JSON.stringify({ templates: [{ id: 't1', name: 'Releases', commentTemplate: '', draftNotes: '', preview: '' }] }), { status: 200 }))
+      }
       if (url.endsWith('/card-preview')) return Promise.resolve(new Response(JSON.stringify({ png: 'data:image/png;base64,AAAA' }), { status: 200 }))
       if (method === 'PATCH') return Promise.resolve(new Response(JSON.stringify({ ...list[0], ...body }), { status: 200 }))
       return Promise.resolve(new Response(JSON.stringify(list), { status: 200 }))
@@ -55,10 +58,12 @@ test('no repos shows a friendly empty state with the add button', async () => {
 })
 
 test('offline shows a plain message and Retry fetches again', async () => {
-  const fetchMock = vi.fn()
+  const repoCalls = vi.fn()
     .mockRejectedValueOnce(new TypeError('Failed to fetch'))
     .mockResolvedValueOnce(new Response(JSON.stringify([repo()]), { status: 200 }))
-  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('fetch', (url: string) =>
+    url.endsWith('/templates') ? Promise.resolve(new Response(JSON.stringify({ templates: [] }), { status: 200 })) : repoCalls(url),
+  )
   render(
     <MemoryRouter>
       <Repos />
@@ -68,7 +73,7 @@ test('offline shows a plain message and Retry fetches again', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
   expect(await screen.findByText('acme/rocket')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).toBeNull()
-  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(repoCalls).toHaveBeenCalledTimes(2)
 })
 
 test('a switch flips at once, is held while saving, and reverts with an inline error on failure', async () => {
@@ -107,7 +112,7 @@ describe('card branding', () => {
     const form = screen.getByRole('form', { name: 'Card branding for acme/rocket' })
     expect(within(form).getByText(/acme's GitHub avatar/)).toBeInTheDocument()
     await userEvent.type(within(form).getByLabelText('Logo URL'), 'https://acme.dev/logo.png')
-    await userEvent.click(within(form).getByRole('button', { name: 'Use #58D3AE' }))
+    await userEvent.click(within(form).getByRole('button', { name: 'Use #58D3AE for accent' }))
     await userEvent.click(within(form).getByRole('button', { name: 'Save branding' }))
     expect(await within(form).findByText(/New cards use it/)).toBeInTheDocument()
     expect(calls.at(-1)).toMatchObject({ method: 'PATCH', url: '/api/captain/repos/r1', body: { logoUrl: 'https://acme.dev/logo.png', accent: '#58D3AE' } })
@@ -121,6 +126,17 @@ describe('card branding', () => {
     expect(screen.getByRole('button', { name: 'Save branding' })).toBeDisabled()
     expect(calls.some((c) => c.method === 'PATCH')).toBe(false)
   })
+
+  it('saves a background and text colour beside the accent', async () => {
+    const calls = setup([repo()])
+    await userEvent.click(await screen.findByText('Card branding'))
+    const form = screen.getByRole('form', { name: 'Card branding for acme/rocket' })
+    await userEvent.click(within(form).getByRole('button', { name: 'Use #F4EFE6 for background' }))
+    await userEvent.type(within(form).getByLabelText('Text hex colour'), '#4A45D1')
+    await userEvent.click(within(form).getByRole('button', { name: 'Save branding' }))
+    expect(await within(form).findByText(/New cards use it/)).toBeInTheDocument()
+    expect(calls.at(-1)).toMatchObject({ method: 'PATCH', body: { background: '#F4EFE6', text: '#4A45D1', accent: '' } })
+  })
 })
 
 test('the branding fold draws a preview once open, and again when the accent changes', async () => {
@@ -131,7 +147,17 @@ test('the branding fold draws a preview once open, and again when the accent cha
   await userEvent.click(screen.getByText('Card branding'))
   const img = await screen.findByRole('img', { name: 'Sample card for acme/rocket with this branding' }, { timeout: 2000 })
   expect(img).toHaveAttribute('src', 'data:image/png;base64,AAAA')
-  expect(previews()[0]).toMatchObject({ method: 'POST', url: '/api/captain/repos/r1/card-preview', body: { logoUrl: '', accent: '' } })
-  await userEvent.click(screen.getByRole('button', { name: 'Use #D9A520' }))
-  await waitFor(() => expect(previews().at(-1)?.body).toEqual({ logoUrl: '', accent: '#D9A520' }), { timeout: 2000 })
+  expect(previews()[0]).toMatchObject({ method: 'POST', url: '/api/captain/repos/r1/card-preview', body: { logoUrl: '', accent: '', background: '', text: '' } })
+  await userEvent.click(screen.getByRole('button', { name: 'Use #D9A520 for accent' }))
+  await waitFor(() => expect(previews().at(-1)?.body).toEqual({ logoUrl: '', accent: '#D9A520', background: '', text: '' }), { timeout: 2000 })
+})
+
+test('each repo picks a template for its release launches', async () => {
+  const calls = setup([repo()])
+  const select = await screen.findByLabelText('Template for acme/rocket')
+  expect(select).toHaveValue('')
+  expect(await screen.findByRole('option', { name: 'Releases' })).toBeInTheDocument()
+  await userEvent.selectOptions(select, 'Releases')
+  await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH').at(-1)?.body).toEqual({ templateId: 't1' }))
+  expect(select).toHaveValue('t1')
 })

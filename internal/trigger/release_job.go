@@ -202,6 +202,7 @@ func (d ReleaseDeps) save(ctx context.Context, render func(any, cards.Preset) ([
 		Roles:           rolesJSON,
 		WindowMinutes:   90,
 		CrewCap:         200,
+		TemplateID:      repo.TemplateID,
 	})
 	if err != nil {
 		return fmt.Errorf("create launch: %w", err)
@@ -229,7 +230,7 @@ func (d ReleaseDeps) save(ctx context.Context, render func(any, cards.Preset) ([
 		}
 		lines = append(lines, cards.PRLine{Number: h.PRNumber, Title: h.Title})
 	}
-	brand := cards.RepoBrand(repo.FullName, repo.LogoPng, repo.Accent)
+	brand := cards.RepoBrand(repo.FullName, repo.LogoPng, repo.Accent, repo.CardBg, repo.CardText)
 	var card any = cards.ReleaseCard{
 		Project: spec.Project(), Version: spec.ReleaseTag, Headline: headline,
 		Release: lines, ReleaseMore: more, CrewCount: len(spec.Crew), Date: time.Now(),

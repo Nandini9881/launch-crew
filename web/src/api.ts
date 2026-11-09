@@ -275,6 +275,8 @@ export type NewLaunch = {
   qrLogo?: QrLogo
   /** https image URL, only with qrLogo 'custom'. */
   qrLogoUrl?: string
+  /** One of the captain's templates; absent for the built-in default. */
+  templateId?: string
 }
 
 export type Patch = {
@@ -289,10 +291,29 @@ export type Patch = {
   tickedCrew?: string[]
 }
 
-/** logoUrl and accent brand the repo's cards; empty means the owner's GitHub avatar and the default accent. */
-export type Repo = { id: string; fullName: string; enabled: boolean; allowPrerelease: boolean; logoUrl: string; accent: string }
+/** logoUrl and the colours brand the repo's cards; empty means the owner's GitHub avatar and the default ink card. */
+export type Repo = {
+  id: string
+  fullName: string
+  enabled: boolean
+  allowPrerelease: boolean
+  logoUrl: string
+  accent: string
+  background: string
+  text: string
+  /** The template its release launches use; '' for the built-in default. */
+  templateId: string
+}
 
-export type RepoPatch = { enabled?: boolean; allowPrerelease?: boolean; logoUrl?: string; accent?: string }
+export type RepoPatch = {
+  enabled?: boolean
+  allowPrerelease?: boolean
+  logoUrl?: string
+  accent?: string
+  background?: string
+  text?: string
+  templateId?: string
+}
 
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
@@ -334,18 +355,27 @@ export const refreshChannels = (id: string) =>
   captain<{ channels: number }>(`/launches/${lid(id)}/channels/refresh`, json('POST'))
 export const listRepos = () => captain<Repo[]>('/repos')
 
-/** The captain's templates: the PR comment wording and notes for the model. Empty means the default. */
-export type CaptainSettings = {
-  commentTemplate: string
-  draftNotes: string
+/** One named template: the PR comment wording and notes for the model. Empty fields mean the built-in comment and no notes. */
+export type Template = { id: string; name: string; commentTemplate: string; draftNotes: string; preview: string }
+export type TemplateInput = { name: string; commentTemplate: string; draftNotes: string }
+/** The captain's templates and the editor's limits. A launch or repo with no template uses the built-in comment. */
+export type TemplatesView = {
+  templates: Template[]
   defaultComment: string
+  defaultPreview: string
   placeholders: string[]
-  preview: string
   maxCommentLen: number
   maxNotesLen: number
+  maxNameLen: number
+  maxTemplates: number
 }
-export const getSettings = () => captain<CaptainSettings>('/settings')
-export const saveSettings = (p: { commentTemplate?: string; draftNotes?: string }) => captain<CaptainSettings>('/settings', json('PUT', p))
+export const listTemplates = () => captain<TemplatesView>('/templates')
+export const createTemplate = (t: TemplateInput) => captain<Template>('/templates', json('POST', t))
+export const saveTemplate = (id: string, t: TemplateInput) => captain<Template>(`/templates/${lid(id)}`, json('PUT', t))
+export const deleteTemplate = (id: string) => captain<unknown>(`/templates/${lid(id)}`, json('DELETE'))
+/** Draws the event slide for the new launch form; png is a data URL. */
+export const previewQr = (p: { title: string; qrLogo: QrLogo; qrLogoUrl?: string }) =>
+  captain<{ png: string }>('/qr-preview', json('POST', p))
 
 // Where a post lives in the Buffer app: the channel's queue, drafts or sent list.
 export const bufferChannelUrl = (channelId: string, status: string) => {
@@ -353,7 +383,7 @@ export const bufferChannelUrl = (channelId: string, status: string) => {
   return `https://publish.buffer.com/channels/${encodeURIComponent(channelId)}/${tab}`
 }
 /** Draws a sample card with unsaved branding; png is a data URL. */
-export const previewRepoCard = (id: string, p: { logoUrl: string; accent: string }) =>
+export const previewRepoCard = (id: string, p: { logoUrl: string; accent: string; background: string; text: string }) =>
   captain<{ png: string }>(`/repos/${lid(id)}/card-preview`, json('POST', p))
 export const patchRepo = (id: string, p: RepoPatch) =>
   captain<Repo>(`/repos/${lid(id)}`, json('PATCH', p))
