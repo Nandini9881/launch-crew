@@ -39,6 +39,8 @@ const detail = (over: Partial<Detail> = {}): Detail => ({
   captainName: 'Shubham Tomar',
   qrLogo: 'plane',
   qrLogoUrl: '',
+  images: [],
+  includeCard: true,
   ...over,
 })
 

@@ -262,7 +262,19 @@ export type Detail = {
   qrLogoUrl: string
   /** The release card, attached to the captain's posts when there is no hero image. */
   cardUrl?: string
+  /** The captain's uploads, in posting order. */
+  images: LaunchImage[]
+  /** Whether posts lead with the card slot (hero, else release card) before the images. */
+  includeCard: boolean
 }
+
+export type LaunchImage = { id: string; url: string }
+
+export const MAX_IMAGES = 10
+export const MAX_IMAGE_BYTES = 10 << 20
+export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+export const IMAGE_TOO_LARGE = 'Each image can be up to 10 MB.'
+export const IMAGE_NOT_IMAGE = 'Use a JPEG, PNG, GIF or WebP image.'
 export type QrLogo = 'plane' | 'none' | 'custom'
 
 export type NewLaunch = {
@@ -289,6 +301,7 @@ export type Patch = {
   qrLogo?: QrLogo
   qrLogoUrl?: string
   tickedCrew?: string[]
+  includeCard?: boolean
 }
 
 /** logoUrl and the colours brand the repo's cards; empty means the owner's GitHub avatar and the default ink card. */
@@ -347,6 +360,42 @@ export const patchCaptainDraft = (id: string, draftId: string, body: { text?: st
   captain<Detail>(`/launches/${lid(id)}/drafts/${encodeURIComponent(draftId)}`, json('PATCH', body))
 export const editCaptainDraft = (id: string, draftId: string, text: string) => patchCaptainDraft(id, draftId, { text })
 export const pressLaunch = (id: string) => captain<{ status: string }>(`/launches/${lid(id)}/launch`, json('POST'))
+// Uploads go over XMLHttpRequest so the tile can show how far along the bytes are.
+export function uploadLaunchImage(id: string, file: File, onProgress?: (fraction: number) => void): Promise<LaunchImage> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `/api/captain/launches/${lid(id)}/images`)
+    xhr.responseType = 'text'
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total)
+      }
+    }
+    xhr.onerror = () => reject(new ApiError(0, 'offline', OFFLINE))
+    xhr.onload = () => {
+      let body: { id?: string; url?: string; error?: string; message?: string } = {}
+      try {
+        body = JSON.parse(xhr.responseText || '{}')
+      } catch {
+        body = {}
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ id: body.id ?? '', url: body.url ?? '' })
+        return
+      }
+      const err = new ApiError(xhr.status, body.error ?? 'error', body.message ?? xhr.statusText)
+      if (err.status === 401 && err.code === 'sign_in') signIn()
+      reject(err)
+    }
+    const form = new FormData()
+    form.append('image', file, file.name)
+    xhr.send(form)
+  })
+}
+export const removeLaunchImage = (id: string, imageId: string) =>
+  captain<unknown>(`/launches/${lid(id)}/images/${lid(imageId)}`, json('DELETE'))
+export const orderLaunchImages = (id: string, ids: string[]) =>
+  captain<unknown>(`/launches/${lid(id)}/images/order`, json('PUT', { ids }))
 export const retryJob = (id: string, jobId: number) =>
   captain<{ status: string }>(`/launches/${lid(id)}/retry/${jobId}`, json('POST'))
 export const retryComment = (id: string, memberId: string) =>
