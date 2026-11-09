@@ -46,6 +46,16 @@ test('home', async ({ browser }) => {
   const { ctx, page } = await open(browser, undefined)
   await scan(page, '/', async (p) => {
     await expect(p.getByRole('link', { name: 'Sign in with Buffer' }).first()).toBeVisible()
+    // Parts of the page unfold as they scroll up the screen; scan them as a reader sees them, unfolded.
+    for (const s of await p.locator('.home-ticket > .home-section').all()) {
+      // By layout position: scrollIntoView would line up the folded part's rotated box.
+      await s.evaluate((el) => {
+        let y = 0
+        for (let e: HTMLElement | null = el as HTMLElement; e; e = e.offsetParent as HTMLElement | null) y += e.offsetTop
+        window.scrollTo({ top: y, behavior: 'instant' })
+      })
+      await expect(s).toHaveClass(/is-in/)
+    }
   })
   await ctx.close()
 })
