@@ -69,3 +69,24 @@ SELECT * FROM repos WHERE id = $1;
 
 -- name: ListLaunchAssetURLs :many
 SELECT id, r2_url FROM launch_assets WHERE launch_id = $1;
+
+-- name: ListLaunchImages :many
+SELECT * FROM launch_assets WHERE launch_id = $1 AND kind = 'image' ORDER BY position, id;
+
+-- name: InsertLaunchImage :one
+INSERT INTO launch_assets (launch_id, kind, r2_url, sha, position)
+VALUES ($1, 'image', $2, $3,
+    (SELECT COALESCE(MAX(position), 0) + 1 FROM launch_assets WHERE launch_id = $1 AND kind = 'image'))
+RETURNING *;
+
+-- name: DeleteLaunchImage :execrows
+DELETE FROM launch_assets WHERE id = $1 AND launch_id = $2 AND kind = 'image';
+
+-- name: SetLaunchImagePosition :exec
+UPDATE launch_assets SET position = $3 WHERE id = $1 AND launch_id = $2 AND kind = 'image';
+
+-- name: CountLaunchImages :one
+SELECT count(*) FROM launch_assets WHERE launch_id = $1 AND kind = 'image';
+
+-- name: SetLaunchIncludeCard :exec
+UPDATE launches SET include_card = $2 WHERE id = $1;

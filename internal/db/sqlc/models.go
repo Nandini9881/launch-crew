@@ -176,14 +176,16 @@ type Launch struct {
 	QrLogo          string             `json:"qr_logo"`
 	CaptainNotified []string           `json:"captain_notified"`
 	TemplateID      uuid.NullUUID      `json:"template_id"`
+	IncludeCard     bool               `json:"include_card"`
 }
 
 type LaunchAsset struct {
-	ID       uuid.UUID `json:"id"`
-	LaunchID uuid.UUID `json:"launch_id"`
-	Kind     string    `json:"kind"`
-	R2Url    string    `json:"r2_url"`
-	Sha      string    `json:"sha"`
+	ID       uuid.UUID   `json:"id"`
+	LaunchID uuid.UUID   `json:"launch_id"`
+	Kind     string      `json:"kind"`
+	R2Url    string      `json:"r2_url"`
+	Sha      string      `json:"sha"`
+	Position pgtype.Int2 `json:"position"`
 }
 
 type OpenRate struct {

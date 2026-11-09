@@ -15,7 +15,7 @@ import (
 
 const cacheControl = "public, max-age=31536000, immutable"
 
-// Uploader puts card PNGs in an R2 bucket under content-addressed keys.
+// Uploader puts card PNGs and captain uploads in an R2 bucket under content-addressed keys.
 type Uploader struct {
 	S3         *s3.Client
 	Bucket     string
@@ -37,14 +37,24 @@ func NewUploader(endpoint, bucket, accessKey, secretKey, publicBase string) *Upl
 
 // Put stores png at cards/<sha256>.png and returns its public URL and the hash.
 func (u *Uploader) Put(ctx context.Context, png []byte) (url, sha string, err error) {
-	sum := sha256.Sum256(png)
+	return u.put(ctx, "cards", ".png", "image/png", png)
+}
+
+// PutImage stores a captain's upload, already shrunk to a JPEG, at
+// uploads/<sha256>.jpg and returns its public URL and the hash.
+func (u *Uploader) PutImage(ctx context.Context, jpg []byte) (url, sha string, err error) {
+	return u.put(ctx, "uploads", ".jpg", "image/jpeg", jpg)
+}
+
+func (u *Uploader) put(ctx context.Context, dir, ext, contentType string, body []byte) (url, sha string, err error) {
+	sum := sha256.Sum256(body)
 	sha = hex.EncodeToString(sum[:])
-	key := "cards/" + sha + ".png"
+	key := dir + "/" + sha + ext
 	_, err = u.S3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:       aws.String(u.Bucket),
 		Key:          aws.String(key),
-		Body:         bytes.NewReader(png),
-		ContentType:  aws.String("image/png"),
+		Body:         bytes.NewReader(body),
+		ContentType:  aws.String(contentType),
 		CacheControl: aws.String(cacheControl),
 	})
 	if err != nil {
