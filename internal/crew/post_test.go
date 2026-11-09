@@ -806,7 +806,7 @@ func TestPostAttachesMemberCard(t *testing.T) {
 	}
 	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
 	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{
-		{ChannelID: "x1", Text: "shipped it", Timing: crew.TimingQueue, AssetURL: "https://evil.example/x.png"},
+		{ChannelID: "x1", Text: "shipped it", Timing: crew.TimingQueue, Attach: true, Card: crew.Image{URL: "https://evil.example/x.png"}},
 		{ChannelID: "x2", Text: "shipped it too", Timing: crew.TimingQueue},
 	})
 	if err != nil || len(out) != 2 {
@@ -909,14 +909,14 @@ func TestCrewPostUsesCurrentImages(t *testing.T) {
 	e.addImage(t, "https://r2.example/uploads/two.jpg")
 	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
 
-	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x1", Text: "first", Timing: crew.TimingQueue, AssetURL: card}})
+	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x1", Text: "first", Timing: crew.TimingQueue, Attach: true}})
 	if err != nil || out[0].Status != "queued" {
 		t.Fatalf("post 1: %+v %v", out, err)
 	}
 	if _, err := e.q.DeleteLaunchImage(ctx, sqlc.DeleteLaunchImageParams{ID: i1.ID, LaunchID: e.launch.ID}); err != nil {
 		t.Fatal(err)
 	}
-	out, err = crew.Post(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x2", Text: "second", Timing: crew.TimingQueue, AssetURL: card}})
+	out, err = crew.Post(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x2", Text: "second", Timing: crew.TimingQueue, Attach: true}})
 	if err != nil || out[0].Status != "queued" {
 		t.Fatalf("post 2: %+v %v", out, err)
 	}
@@ -947,8 +947,8 @@ func TestCrewPostCapsImagesPerNetwork(t *testing.T) {
 	}
 	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
 	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{
-		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: card},
-		{ChannelID: "li", Text: "li post", Timing: crew.TimingQueue, AssetURL: card},
+		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, Attach: true},
+		{ChannelID: "li", Text: "li post", Timing: crew.TimingQueue, Attach: true},
 	})
 	if err != nil || out[0].Status != "queued" || out[1].Status != "queued" {
 		t.Fatalf("post: %+v %v", out, err)
@@ -977,8 +977,8 @@ func TestNoCardNoImages(t *testing.T) {
 	}
 	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
 	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{
-		{ChannelID: "yt", Text: "yt post", Timing: crew.TimingQueue, AssetURL: card},
-		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: card},
+		{ChannelID: "yt", Text: "yt post", Timing: crew.TimingQueue, Attach: true},
+		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, Attach: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -995,13 +995,15 @@ func TestNoCardNoImages(t *testing.T) {
 	}
 }
 
-// Images attach even when the member has no card of their own.
+// Images attach even when the member has no card of their own, and the
+// selection only asks: what is attached is what the launch has now, so an
+// image added after the person approved goes out too.
 func TestCrewPostImagesWithoutCard(t *testing.T) {
 	e := setup(t, channel{"x1", "twitter", "@ana"})
 	e.addImage(t, "https://r2.example/uploads/only.jpg")
 	e.fake.Script("CreatePost", success("p-1"))
 	out, err := crew.Post(context.Background(), e.deps, e.memberID, []crew.Selection{
-		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: "https://r2.example/uploads/only.jpg"},
+		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, Attach: true},
 	})
 	if err != nil || out[0].Status != "queued" {
 		t.Fatalf("post: %+v %v", out, err)
@@ -1023,8 +1025,8 @@ func TestBlueskyGetsSmallCopies(t *testing.T) {
 	e.addSizedImage(t, "https://r2.example/uploads/huge.png", 9_000_000, "")
 	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
 	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{
-		{ChannelID: "bs", Text: "bluesky post", Timing: crew.TimingQueue, AssetURL: card},
-		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: card},
+		{ChannelID: "bs", Text: "bluesky post", Timing: crew.TimingQueue, Attach: true},
+		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, Attach: true},
 	})
 	if err != nil || out[0].Status != "queued" || out[1].Status != "queued" {
 		t.Fatalf("post: %+v %v", out, err)
@@ -1060,7 +1062,7 @@ func TestCrewPostFailsWhenImagesCannotBeRead(t *testing.T) {
 	e.fake.Script("CreatePost", success("p-1"))
 	// PostAll takes the resolved selection, as Post hands it over once it has
 	// picked the card; the rename above also hides the card from Post itself.
-	out, err := crew.PostAll(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, AssetURL: "https://r2.example/cards/ana.png"}})
+	out, err := crew.PostAll(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, Attach: true, Card: crew.Image{URL: "https://r2.example/cards/ana.png"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1069,5 +1071,57 @@ func TestCrewPostFailsWhenImagesCannotBeRead(t *testing.T) {
 	}
 	if n := len(createInputs(e.fake)); n != 0 {
 		t.Errorf("%d posts reached Buffer without their images", n)
+	}
+}
+
+// A member's card over Bluesky's limit goes to Bluesky as its small copy and
+// to X as it is.
+func TestBlueskyGetsTheSmallCardCopy(t *testing.T) {
+	e := setup(t, channel{"bs", "bluesky", "ana.bsky"}, channel{"x1", "twitter", "@ana"})
+	ctx := context.Background()
+	card := crew.Image{URL: "https://r2.example/cards/hero.png", Bytes: 2_000_000, Small: "https://r2.example/uploads/hero-small.jpg"}
+	e.addImage(t, "https://r2.example/uploads/one.png")
+	e.fake.Script("CreatePost", success("p-1"), success("p-2"))
+	out, err := crew.PostAll(ctx, e.deps, e.memberID, []crew.Selection{
+		{ChannelID: "bs", Text: "bluesky post", Timing: crew.TimingQueue, Attach: true, Card: card},
+		{ChannelID: "x1", Text: "x post", Timing: crew.TimingQueue, Attach: true, Card: card},
+	})
+	if err != nil || out[0].Status != "queued" || out[1].Status != "queued" {
+		t.Fatalf("post: %+v %v", out, err)
+	}
+	byText := map[string][]string{}
+	for _, in := range createInputs(e.fake) {
+		byText[in["text"].(string)] = assetURLs(in)
+	}
+	if want := []string{card.Small, "https://r2.example/uploads/one.png"}; !reflect.DeepEqual(byText["bluesky post"], want) {
+		t.Errorf("Bluesky assets = %v, want %v", byText["bluesky post"], want)
+	}
+	if want := []string{card.URL, "https://r2.example/uploads/one.png"}; !reflect.DeepEqual(byText["x post"], want) {
+		t.Errorf("X assets = %v, want %v", byText["x post"], want)
+	}
+}
+
+// Post fills the card slot with the member's own card, size and copy
+// included, so the posting job can pick the right file per network.
+func TestPostCarriesTheCardWithItsSmallCopy(t *testing.T) {
+	e := setup(t, channel{"bs", "bluesky", "ana.bsky"})
+	ctx := context.Background()
+	a, err := e.q.InsertLaunchAsset(ctx, sqlc.InsertLaunchAssetParams{
+		LaunchID: e.launch.ID, Kind: "contributor", R2Url: "https://r2.example/cards/big.png", Sha: "big",
+		Bytes: 2_000_000, SmallUrl: "https://r2.example/uploads/big-small.jpg",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.q.UpdateCrewMemberCard(ctx, sqlc.UpdateCrewMemberCardParams{ID: e.memberID, CardAssetID: uuid.NullUUID{UUID: a.ID, Valid: true}}); err != nil {
+		t.Fatal(err)
+	}
+	e.fake.Script("CreatePost", success("p-1"))
+	out, err := crew.Post(ctx, e.deps, e.memberID, []crew.Selection{{ChannelID: "bs", Text: "bluesky post", Timing: crew.TimingQueue, Attach: true}})
+	if err != nil || out[0].Status != "queued" {
+		t.Fatalf("post: %+v %v", out, err)
+	}
+	if got := assetURLs(createInputs(e.fake)[0]); !reflect.DeepEqual(got, []string{"https://r2.example/uploads/big-small.jpg"}) {
+		t.Errorf("Bluesky assets = %v, want the small copy of the card", got)
 	}
 }

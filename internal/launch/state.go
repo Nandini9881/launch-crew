@@ -342,9 +342,11 @@ func runPreflight(ctx context.Context, d Deps, s *state, drafts []sqlc.CaptainDr
 		ch := s.channels[cd.ChannelID]
 		n := network(ch.Service)
 		rules := drafting.RulesFor(n, s.cfg)
-		card := ""
+		var card crew.Image
 		if cd.AssetID.Valid {
-			card = "card"
+			if a, err := d.Q.GetLaunchAsset(ctx, cd.AssetID.UUID); err == nil {
+				card = crew.ImageOf(a)
+			}
 		}
 		pl.CaptainDrafts = append(pl.CaptainDrafts, preflight.Draft{
 			ChannelID: cd.ChannelID, Service: ch.Service, Network: string(n), Name: ch.Name,

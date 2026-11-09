@@ -33,7 +33,7 @@ UPDATE launches SET open_token_hash = $2 WHERE id = $1;
 SELECT * FROM launches WHERE open_token_hash = $1;
 
 -- name: InsertLaunchAsset :one
-INSERT INTO launch_assets (launch_id, kind, r2_url, sha) VALUES ($1, $2, $3, $4) RETURNING *;
+INSERT INTO launch_assets (launch_id, kind, r2_url, sha, bytes, small_url) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
 
 -- name: GetLaunchAsset :one
 SELECT * FROM launch_assets WHERE id = $1;

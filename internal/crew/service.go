@@ -65,6 +65,18 @@ const (
 type AssetView struct {
 	URL string `json:"url"`
 	Alt string `json:"alt"`
+	// Bytes and Small are for the posting code: the file's size and its
+	// copy under Bluesky's limit, when it has one.
+	Bytes int64  `json:"-"`
+	Small string `json:"-"`
+}
+
+// image is the asset as the posting code attaches it.
+func (a *AssetView) image() Image {
+	if a == nil {
+		return Image{}
+	}
+	return Image{URL: a.URL, Bytes: a.Bytes, Small: a.Small}
 }
 
 // LaunchSummary is the launch as the invite page shows it.
@@ -360,7 +372,7 @@ func releaseCard(ctx context.Context, d Deps, info launchInfo) *AssetView {
 	if h := info.headline(); h != "" {
 		alt += ": " + h
 	}
-	return &AssetView{URL: a.R2Url, Alt: alt}
+	return &AssetView{URL: a.R2Url, Alt: alt, Bytes: a.Bytes, Small: a.SmallUrl}
 }
 
 // blueskyMaxBytes mirrors the Bluesky per-image limit in the posting rules.
@@ -390,7 +402,7 @@ func cardFor(ctx context.Context, d Deps, info launchInfo, m sqlc.CrewMember, na
 			} else if m.PrTitle.String != "" {
 				alt += ": " + m.PrTitle.String
 			}
-			return &AssetView{URL: a.R2Url, Alt: alt}
+			return &AssetView{URL: a.R2Url, Alt: alt, Bytes: a.Bytes, Small: a.SmallUrl}
 		}
 	}
 	return releaseCard(ctx, d, info)
@@ -1062,8 +1074,8 @@ func MarkCopied(ctx context.Context, d Deps, memberID uuid.UUID) error {
 }
 
 // Post runs PostAll and moves the member to queued when a post was queued.
-// A selection asking for an image gets the member's card, never a URL
-// from the caller.
+// A selection asking for images gets the member's own card; the images
+// themselves are read by the posting job as it sends.
 func Post(ctx context.Context, d Deps, memberID uuid.UUID, sels []Selection) ([]Outcome, error) {
 	m, err := getMember(ctx, d, memberID)
 	if err != nil {
@@ -1073,20 +1085,10 @@ func Post(ctx context.Context, d Deps, memberID uuid.UUID, sels []Selection) ([]
 	if err != nil {
 		return nil, err
 	}
-	// The posting job reads the launch's images itself; the selection only
-	// says whether to attach anything. It carries the card, or, for a
-	// member without one, the first image, so the intent survives.
-	card := ""
-	if c := cardFor(ctx, d, info, m, ""); c != nil {
-		card = c.URL
-	} else if imgs, err := d.Q.ListLaunchImages(ctx, info.l.ID); err == nil && len(imgs) > 0 {
-		card = imgs[0].R2Url
-	}
+	card := cardFor(ctx, d, info, m, "").image()
 	sels = append([]Selection(nil), sels...)
 	for i := range sels {
-		if sels[i].AssetURL != "" {
-			sels[i].AssetURL = card
-		}
+		sels[i].Card = card
 	}
 	out, err := PostAll(ctx, d, memberID, sels)
 	if err != nil {

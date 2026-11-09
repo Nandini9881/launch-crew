@@ -163,3 +163,31 @@ func TestInstagramDraftNeedsSomethingToAttach(t *testing.T) {
 		t.Errorf("network rules check = %+v, want red naming Instagram", rules)
 	}
 }
+
+// A release card over Bluesky's limit reaches Bluesky as its small copy.
+func TestLaunchJobBigCardGoesSmallToBluesky(t *testing.T) {
+	e := setup(t)
+	e.buf.Handle("GetChannels", map[string]any{"channels": []any{
+		map[string]any{"id": "ch-x", "name": "Acme X", "service": "twitter"},
+		map[string]any{"id": "ch-bs", "name": "Acme Bluesky", "service": "bluesky"},
+	}})
+	// The release card the drafts already point at grows past the limit.
+	if _, err := e.pool.Exec(e.ctx, `UPDATE launch_assets SET r2_url = $2, bytes = 2000000, small_url = $3 WHERE launch_id = $1 AND kind = 'release'`,
+		e.launch.ID, "https://cdn.example/cards/big.png", "https://cdn.example/uploads/big-small.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	imgs := e.addImages(t, 1)
+	if err := launch.Launch(e.ctx, e.deps, e.launch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.drain(t); err != nil {
+		t.Fatal(err)
+	}
+	got := e.captainPostsByChannel(t)
+	if want := append([]string{"https://cdn.example/uploads/big-small.jpg"}, imgs...); !reflect.DeepEqual(got["ch-bs"], want) {
+		t.Errorf("Bluesky assets = %v, want %v", got["ch-bs"], want)
+	}
+	if want := append([]string{"https://cdn.example/cards/big.png"}, imgs...); !reflect.DeepEqual(got["ch-x"], want) {
+		t.Errorf("X assets = %v, want %v", got["ch-x"], want)
+	}
+}

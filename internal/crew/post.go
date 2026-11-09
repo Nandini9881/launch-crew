@@ -56,7 +56,12 @@ type Selection struct {
 	ChannelID string `json:"channelId"`
 	Text      string `json:"text"`
 	Timing    Timing `json:"timing"`
-	AssetURL  string `json:"assetUrl"`
+	// Attach asks for the launch's images: the member's card, then the
+	// captain's uploads. What goes out is resolved when the post is made,
+	// never from what the page showed when the person approved.
+	Attach bool `json:"attach"`
+	// Card is the member's card slot, filled in by Post; a caller cannot set it.
+	Card Image `json:"-"`
 }
 
 // Outcome is what happened on one channel.
@@ -400,16 +405,12 @@ func (p *poster) attempt(ctx context.Context, j *job) Outcome {
 		log.Printf("crew: images for %s: %v", p.launch.ID, err)
 		return j.fail(noteOurs)
 	}
-	checkURL := ""
-	if len(assets) > 0 {
-		checkURL = assets[0]
-	}
 	checks, ok := preflight.ForCrewDraft(ctx, p.deps.Preflight, preflight.CrewDraft{
 		Draft: preflight.Draft{
 			ChannelID: ch.ID, Service: ch.Service, Network: j.network, Name: ch.Name,
 			Text: j.text, Thread: j.thread, FirstComment: j.firstComment, HasAsset: len(assets) > 0,
 		},
-		ConnectionID: p.connID, AssetURL: checkURL, LaunchAt: p.launch.LaunchAt.Time,
+		ConnectionID: p.connID, AssetURLs: assets, LaunchAt: p.launch.LaunchAt.Time,
 	}, recent)
 	if !ok {
 		for _, c := range checks {
@@ -472,20 +473,14 @@ func (p *poster) attempt(ctx context.Context, j *job) Outcome {
 // the network's limit. sel.AssetURL carries the intent: Post sets it to the
 // card, or to an image when the member has no card.
 func (p *poster) attachments(ctx context.Context, j *job) ([]string, error) {
-	if j.sel.AssetURL == "" || !j.rules.ImageOK {
+	if !j.sel.Attach || !j.rules.ImageOK {
 		return nil, nil
 	}
 	rows, err := p.deps.Q.ListLaunchImages(ctx, p.launch.ID)
 	if err != nil {
 		return nil, err
 	}
-	card := j.sel.AssetURL
-	for _, a := range rows {
-		if a.R2Url == card {
-			card = ""
-		}
-	}
-	return Attachments(card, p.launch.IncludeCard, ImagesOf(rows), j.rules.MaxImages, j.rules.MaxImageBytes), nil
+	return Attachments(j.sel.Card, p.launch.IncludeCard, ImagesOf(rows), j.rules.MaxImages, j.rules.MaxImageBytes), nil
 }
 
 // fit sets the text, thread and first comment to send and reports whether

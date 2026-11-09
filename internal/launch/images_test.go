@@ -3,7 +3,6 @@ package launch_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -16,8 +15,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/shubham-tomar/launchcrew/internal/cards"
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
 	"github.com/shubham-tomar/launchcrew/internal/launch"
+	"github.com/shubham-tomar/launchcrew/internal/trigger"
 )
 
 func encodePNG(t testing.TB, img image.Image) []byte {
@@ -53,26 +54,6 @@ func noisyPNG(t testing.TB, w, h int) []byte {
 		img.Pix[i] = 255
 	}
 	return encodePNG(t, img)
-}
-
-// withOrientation inserts an Exif APP1 segment carrying Orientation o after a JPEG's SOI.
-func withOrientation(jpg []byte, o uint16) []byte {
-	tiff := []byte("II*\x00")
-	tiff = binary.LittleEndian.AppendUint32(tiff, 8) // IFD0 at offset 8
-	tiff = binary.LittleEndian.AppendUint16(tiff, 1) // one entry
-	tiff = binary.LittleEndian.AppendUint16(tiff, 0x0112)
-	tiff = binary.LittleEndian.AppendUint16(tiff, 3) // SHORT
-	tiff = binary.LittleEndian.AppendUint32(tiff, 1)
-	tiff = binary.LittleEndian.AppendUint16(tiff, o)
-	tiff = append(tiff, 0, 0)
-	tiff = binary.LittleEndian.AppendUint32(tiff, 0) // no next IFD
-	payload := append([]byte("Exif\x00\x00"), tiff...)
-	seg := []byte{0xFF, 0xE1}
-	seg = binary.BigEndian.AppendUint16(seg, uint16(len(payload)+2))
-	seg = append(seg, payload...)
-	out := append([]byte{}, jpg[:2]...)
-	out = append(out, seg...)
-	return append(out, jpg[2:]...)
 }
 
 // A 1×1 lossy WebP, the smallest valid file; x/image/webp reads its header.
@@ -117,75 +98,6 @@ func TestSniffRefusesOtherBytes(t *testing.T) {
 		if _, err := launch.SniffImage(data); !errors.Is(err, launch.ErrImageNotImage) {
 			t.Errorf("%s: err = %v, want ErrImageNotImage", name, err)
 		}
-	}
-}
-
-func TestBlueskyCopyFitsUnderOneMB(t *testing.T) {
-	src := noisyPNG(t, 900, 700)
-	if len(src) <= launch.BlueskyMaxBytes {
-		t.Fatalf("fixture is only %d bytes; want over %d", len(src), launch.BlueskyMaxBytes)
-	}
-	out, err := launch.BlueskyCopy(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(out) > launch.BlueskyMaxBytes {
-		t.Errorf("copy is %d bytes, want at most %d", len(out), launch.BlueskyMaxBytes)
-	}
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(out))
-	if err != nil || format != "jpeg" {
-		t.Fatalf("copy format %q err %v", format, err)
-	}
-	// Same shape, never wider than the source.
-	if cfg.Width > 900 || cfg.Height > 700 || cfg.Width*700 < cfg.Height*800 {
-		t.Errorf("copy is %dx%d, want ≤ 900x700 at about 9:7", cfg.Width, cfg.Height)
-	}
-}
-
-func TestBlueskyCopyKeepsOrientation(t *testing.T) {
-	// 20 wide × 30 tall: a red block at the top-left, a blue block at the
-	// bottom-left. Blocks, not pixels: JPEG smears colour across 2×2 cells.
-	img := image.NewRGBA(image.Rect(0, 0, 20, 30))
-	for y := 0; y < 30; y++ {
-		for x := 0; x < 20; x++ {
-			c := color.RGBA{255, 255, 255, 255}
-			if x < 10 && y < 10 {
-				c = color.RGBA{255, 0, 0, 255}
-			} else if x < 10 && y >= 20 {
-				c = color.RGBA{0, 0, 255, 255}
-			}
-			img.Set(x, y, c)
-		}
-	}
-	var j bytes.Buffer
-	if err := jpeg.Encode(&j, img, &jpeg.Options{Quality: 100}); err != nil {
-		t.Fatal(err)
-	}
-	src := withOrientation(j.Bytes(), 6) // rotate 90° clockwise to display
-	if got := launch.Orientation(src); got != 6 {
-		t.Fatalf("orientation read back = %d, want 6", got)
-	}
-	out, err := launch.BlueskyCopy(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := jpeg.Decode(bytes.NewReader(out))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b := got.Bounds(); b.Dx() != 30 || b.Dy() != 20 {
-		t.Fatalf("copy is %dx%d, want 30x20 after rotation", b.Dx(), b.Dy())
-	}
-	r, _, bl, _ := got.At(25, 5).RGBA() // red block moved to the top-right
-	if r>>8 < 150 || bl>>8 > 120 {
-		t.Errorf("top-right = r%d b%d, want red", r>>8, bl>>8)
-	}
-	r, _, bl, _ = got.At(5, 5).RGBA() // blue block moved to the top-left
-	if bl>>8 < 150 || r>>8 > 120 {
-		t.Errorf("top-left = r%d b%d, want blue", r>>8, bl>>8)
-	}
-	if launch.Orientation(j.Bytes()) != 1 {
-		t.Errorf("a JPEG without Exif reads as %d, want 1", launch.Orientation(j.Bytes()))
 	}
 }
 
@@ -386,5 +298,31 @@ func TestReorderNeedsExactSet(t *testing.T) {
 	rows := e.images(t)
 	if len(rows) != 2 || rows[0].ID != b.ID || rows[1].ID != a.ID {
 		t.Errorf("order after reorder = %v, want b then a", []uuid.UUID{rows[0].ID, rows[1].ID})
+	}
+}
+
+// A release card over Bluesky's limit is stored with its size and a JPEG
+// copy under the limit, so the hero or card still reaches Bluesky.
+func TestCreateManualStoresABlueskyCopyOfABigCard(t *testing.T) {
+	e := setup(t)
+	big := noisyPNG(t, 900, 700)
+	e.deps.Render = func(c any, p cards.Preset) ([]byte, error) { return big, nil }
+	l, _, err := launch.CreateManual(e.ctx, e.deps, e.owner.ID, trigger.ManualInput{Title: "Big card"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := e.q.GetLatestLaunchAssetByKind(e.ctx, sqlc.GetLatestLaunchAssetByKindParams{LaunchID: l.ID, Kind: "release"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Bytes != int64(len(big)) {
+		t.Errorf("bytes = %d, want %d", a.Bytes, len(big))
+	}
+	if !strings.HasSuffix(a.SmallUrl, ".jpg") {
+		t.Fatalf("small copy = %q, want a stored JPEG", a.SmallUrl)
+	}
+	o, ok := e.r2.Object(strings.TrimPrefix(a.SmallUrl, "https://cdn.example/"))
+	if !ok || len(o.Body) > launch.BlueskyMaxBytes {
+		t.Errorf("copy object ok=%v %d bytes", ok, len(o.Body))
 	}
 }

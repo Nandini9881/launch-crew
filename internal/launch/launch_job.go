@@ -174,10 +174,10 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 		in.Text, in.Thread = t[0], t
 	}
 	if rules.ImageOK {
-		card := ""
+		var card crew.Image
 		if cd.AssetID.Valid {
 			if a, err := d.Q.GetLaunchAsset(ctx, cd.AssetID.UUID); err == nil {
-				card = a.R2Url
+				card = crew.ImageOf(a)
 			}
 		}
 		in.AssetURLs = crew.Attachments(card, s.l.IncludeCard, s.images, rules.MaxImages, rules.MaxImageBytes)

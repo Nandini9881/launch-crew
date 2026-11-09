@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -38,6 +39,38 @@ func NewUploader(endpoint, bucket, accessKey, secretKey, publicBase string) *Upl
 // Put stores png at cards/<sha256>.png and returns its public URL and the hash.
 func (u *Uploader) Put(ctx context.Context, png []byte) (url, sha string, err error) {
 	return u.put(ctx, "cards", ".png", "image/png", png)
+}
+
+// Stored is a card as the launch keeps it: where it is, its hash and size,
+// and the copy under Bluesky's limit when the card is over it.
+type Stored struct {
+	URL   string
+	Sha   string
+	Bytes int64
+	Small string
+}
+
+// PutCard stores a rendered card or hero PNG like Put does and, when it is
+// over Bluesky's limit, a JPEG copy under it. A card too large to copy is
+// stored without one and logged; it is then left out of Bluesky posts.
+func (u *Uploader) PutCard(ctx context.Context, png []byte) (Stored, error) {
+	url, sha, err := u.Put(ctx, png)
+	if err != nil {
+		return Stored{}, err
+	}
+	s := Stored{URL: url, Sha: sha, Bytes: int64(len(png))}
+	if len(png) <= BlueskyMaxBytes {
+		return s, nil
+	}
+	c, err := BlueskyCopy(ctx, png)
+	if err != nil {
+		log.Printf("cards: no Bluesky copy of %s: %v", sha, err)
+		return s, nil
+	}
+	if s.Small, _, err = u.PutImage(ctx, c, "image/jpeg"); err != nil {
+		return Stored{}, fmt.Errorf("cards: upload Bluesky copy: %w", err)
+	}
+	return s, nil
 }
 
 // imageExts maps the image types a captain may upload to their stored extension.

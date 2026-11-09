@@ -311,7 +311,7 @@ func (q *Queries) IncrementLaunchOpenCount(ctx context.Context, id uuid.UUID) (i
 }
 
 const insertLaunchAsset = `-- name: InsertLaunchAsset :one
-INSERT INTO launch_assets (launch_id, kind, r2_url, sha) VALUES ($1, $2, $3, $4) RETURNING id, launch_id, kind, r2_url, sha, position, bytes, small_url
+INSERT INTO launch_assets (launch_id, kind, r2_url, sha, bytes, small_url) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, launch_id, kind, r2_url, sha, position, bytes, small_url
 `
 
 type InsertLaunchAssetParams struct {
@@ -319,6 +319,8 @@ type InsertLaunchAssetParams struct {
 	Kind     string    `json:"kind"`
 	R2Url    string    `json:"r2_url"`
 	Sha      string    `json:"sha"`
+	Bytes    int64     `json:"bytes"`
+	SmallUrl string    `json:"small_url"`
 }
 
 func (q *Queries) InsertLaunchAsset(ctx context.Context, arg InsertLaunchAssetParams) (LaunchAsset, error) {
@@ -327,6 +329,8 @@ func (q *Queries) InsertLaunchAsset(ctx context.Context, arg InsertLaunchAssetPa
 		arg.Kind,
 		arg.R2Url,
 		arg.Sha,
+		arg.Bytes,
+		arg.SmallUrl,
 	)
 	var i LaunchAsset
 	err := row.Scan(
