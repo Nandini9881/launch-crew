@@ -15,6 +15,7 @@ function setup(over: Partial<Parameters<typeof LaunchImages>[0]> = {}) {
   const props = {
     images: imgs(2),
     includeCard: true,
+    hasCard: true,
     locked: false,
     pending: [] as Pending[],
     onAdd: vi.fn(),
@@ -87,7 +88,7 @@ test('remove and the card switch call back', async () => {
   const { onRemove, onIncludeCard } = setup()
   await userEvent.click(screen.getByRole('button', { name: 'Remove image 1' }))
   expect(onRemove).toHaveBeenCalledWith('i1')
-  const sw = screen.getByRole('switch', { name: 'Put the release card first' })
+  const sw = screen.getByRole('switch', { name: 'Attach the launch card' })
   expect(sw).toBeChecked()
   await userEvent.click(sw)
   expect(onIncludeCard).toHaveBeenCalledWith(false)
@@ -105,7 +106,7 @@ test('locked shows the grid read-only', () => {
   expect(screen.getByText('Images are locked once the launch is out.')).toBeInTheDocument()
   expect(screen.queryByRole('button')).toBeNull()
   expect(screen.queryByLabelText('Add images')).toBeNull()
-  expect(screen.getByRole('switch', { name: 'Put the release card first' })).toBeDisabled()
+  expect(screen.getByRole('switch', { name: 'Attach the launch card' })).toBeDisabled()
 })
 
 test('pending uploads show progress; a failed one shows its error and can be removed', async () => {
@@ -119,4 +120,10 @@ test('pending uploads show progress; a failed one shows its error and can be rem
   expect(screen.getByText('Use a JPEG, PNG, GIF or WebP image.')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Remove b.heic' }))
   expect(onDismiss).toHaveBeenCalledWith(1)
+})
+
+test('without a card there is no switch to show', () => {
+  setup({ hasCard: false })
+  expect(screen.queryByRole('switch')).toBeNull()
+  expect(screen.getByRole('img', { name: 'Image 1' })).toBeInTheDocument()
 })

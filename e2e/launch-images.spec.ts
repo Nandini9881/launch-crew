@@ -54,8 +54,8 @@ test('with the card switch off, posts carry only the images', async ({ page, req
   await control.reset(request)
   await signInCaptain(page, request)
   await createWithImages(page, 'Rocket meetup, no card')
-  await page.getByRole('switch', { name: 'Put the release card first' }).click()
-  await expect(page.getByRole('switch', { name: 'Put the release card first' })).not.toBeChecked()
+  await page.getByRole('switch', { name: 'Attach the launch card' }).click()
+  await expect(page.getByRole('switch', { name: 'Attach the launch card' })).not.toBeChecked()
   const posts = await launchAndCollect(page, request, 0)
   for (const p of posts) {
     expect(p.assets, p.channelId).toHaveLength(2)

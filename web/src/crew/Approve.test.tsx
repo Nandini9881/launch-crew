@@ -144,14 +144,14 @@ test('double tap sends one post request', async () => {
   expect(posts(m)).toHaveLength(1)
   const sent = JSON.parse(posts(m)[0].body!)
   expect(sent.selections).toEqual([
-    { channelId: 'c1', text: 'template one', timing: 'window', assetUrl: '' },
-    { channelId: 'c2', text: 'template two', timing: 'window', assetUrl: '' },
+    { channelId: 'c1', text: 'template one', timing: 'window', attach: true },
+    { channelId: 'c2', text: 'template two', timing: 'window', attach: true },
   ])
   release()
   await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/s/tok1/done'))
 })
 
-test('posts carry the card url when the invite has a card, and empty when it has none', async () => {
+test('posts ask to attach whether or not the page saw a card; the server picks what the launch has', async () => {
   const sendAll = async (view: View) => {
     const m = mockApi({
       connect: approveView({ channels: [X], drafts: [dr('d1', 'c1', 'template one')] }),
@@ -167,11 +167,11 @@ test('posts carry the card url when the invite has a card, and empty when it has
   }
   const withCard = { ...invite, card: { url: 'https://r2/ada.png', alt: 'Ada card' } } as unknown as View
   expect(await sendAll(withCard)).toEqual([
-    { channelId: 'c1', text: 'template one', timing: 'window', assetUrl: 'https://r2/ada.png' },
+    { channelId: 'c1', text: 'template one', timing: 'window', attach: true },
   ])
   cleanup()
   expect(await sendAll(invite)).toEqual([
-    { channelId: 'c1', text: 'template one', timing: 'window', assetUrl: '' },
+    { channelId: 'c1', text: 'template one', timing: 'window', attach: true },
   ])
 })
 
@@ -522,12 +522,12 @@ test('Bluesky skips images over 1 MB that have no small copy, and the note says 
   expect(await screen.findByText('Bluesky skips 1 image over 1 MB.')).toBeInTheDocument()
   // Three images and a 4-cap: no "first 4" note.
   expect(screen.queryByText(/gets the first/)).toBeNull()
-  // The first image carries the attach intent when there is no card.
+  // The selection asks to attach; which files go is the server's call at post time.
   const m = mockApi({ connect: approveView({ channels: [X], drafts: [dr('d1', 'c1', 'one')] }), invite: view,
     post: () => Promise.resolve(new Response(JSON.stringify({ outcomes: [{ channelId: 'c1', service: 'twitter', status: 'queued', when: null, note: '' }] }), { status: 200 })) })
   cleanup()
   visit()
   await userEvent.click(await screen.findByRole('button', { name: 'Add to my queue' }))
   await waitFor(() => expect(posts(m)).toHaveLength(1))
-  expect(JSON.parse(posts(m)[0].body!).selections[0].assetUrl).toBe('https://r2/u/1.png')
+  expect(JSON.parse(posts(m)[0].body!).selections[0]).toMatchObject({ attach: true })
 })

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation } from 'react-router'
 import App from '../App'
 import type { Check, Detail, LaunchSummary } from '../api'
 import { pngFile, stubXhr } from '../test/xhr'
@@ -49,7 +49,7 @@ type Call = { method: string; url: string; body?: unknown }
 
 let refreshReply = () => Promise.resolve(new Response(JSON.stringify({ channels: 3 }), { status: 200 }))
 
-function mockApi(routes: { detail?: Detail; list?: LaunchSummary[] } = {}) {
+function mockApi(routes: { detail?: Detail; list?: LaunchSummary[]; remove?: () => Promise<Response> } = {}) {
   const calls: Call[] = []
   vi.stubGlobal(
     'fetch',
@@ -60,16 +60,23 @@ function mockApi(routes: { detail?: Detail; list?: LaunchSummary[] } = {}) {
       if (url === '/api/captain/launches' && method === 'GET') return ok(routes.list ?? [])
       if (url.endsWith('/channels/refresh')) return refreshReply()
       if (url.includes('/retry/') || url.endsWith('/retry-comment')) return ok({ status: 'retrying' }, 202)
+      if (method === 'DELETE' && url.includes('/images/')) return (routes.remove ?? (() => Promise.resolve(new Response(null, { status: 204 }))))()
       return ok(routes.detail ?? detail())
     }),
   )
   return calls
 }
 
-function visit(path: string) {
+// What the router holds as the current entry's state, for tests that hand one over.
+function LocationState() {
+  return <span data-testid="location-state">{JSON.stringify(useLocation().state)}</span>
+}
+
+function visit(path: string, state?: unknown) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[state === undefined ? path : { pathname: path, state }]}>
       <App />
+      <LocationState />
     </MemoryRouter>,
   )
 }
@@ -621,9 +628,9 @@ test('moving an image later sends the new order', async () => {
 })
 
 test('the card switch patches includeCard, and a launched launch locks the images', async () => {
-  const calls = mockApi({ detail: detail({ images: [{ id: 'i1', url: 'u1' }] }) })
+  const calls = mockApi({ detail: detail({ cardUrl: 'https://cdn.example/cards/release.png', images: [{ id: 'i1', url: 'u1' }] }) })
   visit('/captain/launches/l1')
-  await userEvent.click(await screen.findByRole('switch', { name: 'Put the release card first' }))
+  await userEvent.click(await screen.findByRole('switch', { name: 'Attach the launch card' }))
   await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ includeCard: false }))
   cleanup()
   mockApi({ detail: detail({ status: 'launched', launchAt: new Date(Date.now() + 3_600_000).toISOString(), images: [{ id: 'i1', url: 'u1' }] }) })
@@ -637,4 +644,54 @@ test('a release card that no longer loads says it was removed', async () => {
   visit('/captain/launches/l1')
   fireEvent.error(await screen.findByRole('img', { name: 'Release card for rocket v1.2.0' }))
   expect(screen.getByText('Removed after 60 days')).toBeInTheDocument()
+})
+
+test('a launch without a card has no card switch', async () => {
+  mockApi({ detail: detail({ cardUrl: '', images: [{ id: 'i1', url: 'u1' }] }) })
+  visit('/captain/launches/l1')
+  await screen.findByRole('img', { name: 'Image 1' })
+  expect(screen.queryByRole('switch', { name: 'Attach the launch card' })).toBeNull()
+})
+
+test('failed uploads handed over by New launch show once and leave the history entry', async () => {
+  mockApi()
+  visit('/captain/launches/l1', { failedUploads: [{ name: 'b.heic', error: 'Use a JPEG, PNG, GIF or WebP image.' }] })
+  expect(await screen.findByText('Use a JPEG, PNG, GIF or WebP image.')).toBeInTheDocument()
+  expect(screen.getByText('b.heic')).toBeInTheDocument()
+  // A reload or back would re-read the entry's state: it holds nothing now.
+  await waitFor(() => expect(screen.getByTestId('location-state')).toHaveTextContent('null'))
+  expect(screen.getByText('b.heic')).toBeInTheDocument()
+})
+
+test('a reorder waits for an in-flight remove and sends the list without the removed image', async () => {
+  let finishRemove!: () => void
+  const removed = new Promise<Response>((r) => { finishRemove = () => r(new Response(null, { status: 204 })) })
+  const calls = mockApi({
+    detail: detail({ images: [{ id: 'i1', url: 'u1' }, { id: 'i2', url: 'u2' }, { id: 'i3', url: 'u3' }] }),
+    remove: () => removed,
+  })
+  visit('/captain/launches/l1')
+  await userEvent.click(await screen.findByRole('button', { name: 'Remove image 1' }))
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'u2')
+  await userEvent.click(screen.getByRole('button', { name: 'Move image 1 later' }))
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'u3')
+  expect(calls.find((c) => c.method === 'PUT')).toBeUndefined()
+  finishRemove()
+  await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url.endsWith('/images/order'))?.body).toEqual({ ids: ['i3', 'i2'] }))
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'u3')
+})
+
+test('a refused remove reloads the launch rather than guessing what is left', async () => {
+  const calls = mockApi({
+    detail: detail({ images: [{ id: 'i1', url: 'u1' }, { id: 'i2', url: 'u2' }] }),
+    remove: () => Promise.resolve(new Response(JSON.stringify({ error: 'images_locked', message: 'Images are locked once the launch is out.' }), { status: 409 })),
+  })
+  visit('/captain/launches/l1')
+  await screen.findByRole('img', { name: 'Image 2' })
+  const loads = () => calls.filter((c) => c.method === 'GET' && c.url === '/api/captain/launches/l1').length
+  const before = loads()
+  await userEvent.click(screen.getByRole('button', { name: 'Remove image 1' }))
+  expect(await screen.findByText('Images are locked once the launch is out.')).toBeInTheDocument()
+  await waitFor(() => expect(loads()).toBe(before + 1))
+  expect(screen.getByRole('img', { name: 'Image 1' })).toHaveAttribute('src', 'u1')
 })

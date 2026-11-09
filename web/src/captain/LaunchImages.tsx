@@ -13,6 +13,8 @@ export type Pending = { name: string; progress: number; error?: string }
 type Props = {
   images: LaunchImage[]
   includeCard: boolean
+  /** The launch has a card (hero or release card) to attach; without one the switch has nothing to do. */
+  hasCard: boolean
   /** The launch is out: show the grid, allow nothing. */
   locked: boolean
   pending: Pending[]
@@ -87,7 +89,7 @@ function Tile({ img, index, count, locked, onRemove, onMove, drag }: {
   )
 }
 
-export default function LaunchImages({ images, includeCard, locked, pending, onAdd, onRemove, onMove, onIncludeCard, onDismiss }: Props) {
+export default function LaunchImages({ images, includeCard, hasCard, locked, pending, onAdd, onRemove, onMove, onIncludeCard, onDismiss }: Props) {
   const [problems, setProblems] = useState<string[]>([])
   const [dragging, setDragging] = useState<string>()
   const [over, setOver] = useState(false)
@@ -121,7 +123,7 @@ export default function LaunchImages({ images, includeCard, locked, pending, onA
 
   return (
     <div className="li">
-      <Switch label="Put the release card first" checked={includeCard} disabled={locked} onChange={onIncludeCard} />
+      {hasCard && <Switch label="Attach the launch card" checked={includeCard} disabled={locked} onChange={onIncludeCard} />}
       {locked && <p className="cap-muted li-locked">{LOCKED}</p>}
       {warning && <Alert tone="warning">{warning}</Alert>}
       {problems.length > 0 && (

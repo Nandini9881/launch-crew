@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
-import { useLocation, useParams } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router'
 import { MAX_IMAGES, orderLaunchImages, pressLaunch, refreshChannels, removeLaunchImage, retryComment, retryJob, uploadLaunchImage, type Detail, type Patch } from '../api'
 import Alert from '../components/Alert'
 import Button from '../components/Button'
@@ -73,20 +73,37 @@ const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? o
 /** An upload New launch could not finish, named on the launch page. */
 export type FailedUpload = { name: string; error: string }
 
-// The launch's images: uploads go up one at a time; remove and reorder apply at once
-// and roll back if the server refuses.
-function Images({ id, detail, locked, failed, mutate, onIncludeCard, onError }: {
+// The launch's images: uploads go up one at a time; remove and reorder show at once
+// and go to the server in turn, so a reorder never races the remove before it. When
+// the server refuses one, the launch is reloaded rather than guessed at.
+function Images({ id, detail, locked, failed, mutate, reload, onIncludeCard, onError }: {
   id: string
   detail: Detail
   locked: boolean
   failed: FailedUpload[]
   mutate: (fn: (d: Detail) => Detail) => void
+  reload: () => Promise<unknown>
   onIncludeCard: (v: boolean) => void
   onError: (message: string) => void
 }) {
   const [pending, setPending] = useState<Pending[]>(() => failed.map((f) => ({ name: f.name, progress: 0, error: f.error })))
   const queue = useRef<File[]>([])
   const draining = useRef(false)
+  // Remove and reorder requests, one after the other.
+  const chain = useRef<Promise<unknown>>(Promise.resolve())
+
+  function inTurn(send: () => Promise<unknown>) {
+    chain.current = chain.current.then(send, send)
+  }
+
+  async function refused(e: unknown) {
+    onError(asError(e).message)
+    try {
+      await reload()
+    } catch {
+      // The error banner already says the change did not take.
+    }
+  }
 
   // The first pending entry for this file that is still in flight.
   const inFlight = (ps: Pending[], name: string) => ps.findIndex((p) => p.name === name && !p.error)
@@ -125,31 +142,19 @@ function Images({ id, detail, locked, failed, mutate, onIncludeCard, onError }: 
     void drain()
   }
 
-  async function remove(imageId: string) {
-    const before = detail.images
+  function remove(imageId: string) {
     mutate((d) => ({ ...d, images: d.images.filter((i) => i.id !== imageId) }))
-    try {
-      await removeLaunchImage(id, imageId)
-    } catch (e) {
-      mutate((d) => ({ ...d, images: before }))
-      onError(asError(e).message)
-    }
+    inTurn(() => removeLaunchImage(id, imageId).catch(refused))
   }
 
-  async function move(imageId: string, to: number) {
-    const before = detail.images
-    const next = [...before]
+  function move(imageId: string, to: number) {
+    const next = [...detail.images]
     const from = next.findIndex((i) => i.id === imageId)
     if (from < 0 || to < 0 || to >= next.length || from === to) return
     const [it] = next.splice(from, 1)
     next.splice(to, 0, it)
     mutate((d) => ({ ...d, images: next }))
-    try {
-      await orderLaunchImages(id, next.map((i) => i.id))
-    } catch (e) {
-      mutate((d) => ({ ...d, images: before }))
-      onError(asError(e).message)
-    }
+    inTurn(() => orderLaunchImages(id, next.map((i) => i.id)).catch(refused))
   }
 
   return (
@@ -162,6 +167,7 @@ function Images({ id, detail, locked, failed, mutate, onIncludeCard, onError }: 
       <LaunchImages
         images={detail.images}
         includeCard={detail.includeCard}
+        hasCard={Boolean(detail.cardUrl)}
         locked={locked}
         pending={pending}
         onAdd={add}
@@ -238,7 +244,14 @@ function Hero({ detail, launched }: { detail: Detail; launched: boolean }) {
 
 export default function LaunchDetail() {
   const id = useParams().id ?? ''
-  const failedUploads = (useLocation().state as { failedUploads?: FailedUpload[] } | null)?.failedUploads ?? []
+  const location = useLocation()
+  const navigate = useNavigate()
+  // Uploads New launch could not finish ride over in the history entry's state. They are
+  // read once and the entry is cleared, so a reload or a step back does not bring them back.
+  const [failedUploads] = useState<FailedUpload[]>(() => (location.state as { failedUploads?: FailedUpload[] } | null)?.failedUploads ?? [])
+  useEffect(() => {
+    if ((location.state as { failedUploads?: FailedUpload[] } | null)?.failedUploads) navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate])
   const { detail, error, reload, patch, editDraft, skipDraft, mutate } = useLaunch(id)
   const [pending, setPending] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -359,6 +372,7 @@ export default function LaunchDetail() {
               locked={launched}
               failed={failedUploads}
               mutate={mutate}
+              reload={reload}
               onIncludeCard={(includeCard) => save({ includeCard })}
               onError={setNotice}
             />

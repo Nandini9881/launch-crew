@@ -85,7 +85,8 @@ export type ApproveView = {
   voicedReady: boolean
 }
 
-export type Selection = { channelId: string; text: string; timing: Timing; assetUrl: string }
+/** One channel to post to. `attach` asks for the launch's images; the server picks which files when it posts. */
+export type Selection = { channelId: string; text: string; timing: Timing; attach: boolean }
 export type Outcome = { channelId: string; service: string; status: 'queued' | 'draft' | 'failed'; when: string | null; note: string; postId?: string }
 
 export const OFFLINE = 'Could not reach Launch Crew. Check your connection and try again.'

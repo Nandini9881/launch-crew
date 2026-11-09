@@ -408,6 +408,7 @@ export default function NewLaunch() {
               <LaunchImages
                 images={queued.map((q) => ({ id: q.id, url: q.url }))}
                 includeCard={includeCard}
+                hasCard
                 locked={false}
                 pending={[]}
                 onAdd={addFiles}
