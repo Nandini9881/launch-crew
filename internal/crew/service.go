@@ -1033,9 +1033,14 @@ func Post(ctx context.Context, d Deps, memberID uuid.UUID, sels []Selection) ([]
 	if err != nil {
 		return nil, err
 	}
+	// The posting job reads the launch's images itself; the selection only
+	// says whether to attach anything. It carries the card, or, for a
+	// member without one, the first image, so the intent survives.
 	card := ""
 	if c := cardFor(ctx, d, info, m, ""); c != nil {
 		card = c.URL
+	} else if imgs, err := d.Q.ListLaunchImages(ctx, info.l.ID); err == nil && len(imgs) > 0 {
+		card = imgs[0].R2Url
 	}
 	sels = append([]Selection(nil), sels...)
 	for i := range sels {

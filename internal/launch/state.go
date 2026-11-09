@@ -16,6 +16,7 @@ import (
 
 	"github.com/shubham-tomar/launchcrew/internal/buffer"
 	"github.com/shubham-tomar/launchcrew/internal/cards"
+	"github.com/shubham-tomar/launchcrew/internal/crew"
 	"github.com/shubham-tomar/launchcrew/internal/db/sqlc"
 	"github.com/shubham-tomar/launchcrew/internal/drafting"
 	"github.com/shubham-tomar/launchcrew/internal/preflight"
@@ -217,6 +218,19 @@ func (s *state) cardAsset(ctx context.Context, d Deps) (sqlc.LaunchAsset, bool) 
 	return a, err == nil
 }
 
+// imageURLs are the captain's uploads for this launch, in posting order.
+func (s *state) imageURLs(ctx context.Context, d Deps) ([]string, error) {
+	rows, err := d.Q.ListLaunchImages(ctx, s.l.ID)
+	if err != nil {
+		return nil, fmt.Errorf("launch: list images: %w", err)
+	}
+	urls := make([]string, 0, len(rows))
+	for _, a := range rows {
+		urls = append(urls, a.R2Url)
+	}
+	return urls, nil
+}
+
 // network maps a Buffer service to the drafting network.
 func network(service string) drafting.Network {
 	if s := strings.ToLower(service); s != "x" {
@@ -327,13 +341,19 @@ func runPreflight(ctx context.Context, d Deps, s *state, drafts []sqlc.CaptainDr
 			pl.Assets = append(pl.Assets, preflight.Asset{URL: a.R2Url, Label: "Hero image"})
 		}
 	}
+	images, _ := s.imageURLs(ctx, d)
 	for _, cd := range drafts {
 		ch := s.channels[cd.ChannelID]
 		n := network(ch.Service)
+		rules := drafting.RulesFor(n, s.cfg)
+		card := ""
+		if cd.AssetID.Valid {
+			card = "card"
+		}
 		pl.CaptainDrafts = append(pl.CaptainDrafts, preflight.Draft{
 			ChannelID: cd.ChannelID, Service: ch.Service, Network: string(n), Name: ch.Name,
 			Text: cd.Text, Thread: threadOf(cd.Thread), FirstComment: cd.FirstComment.String,
-			HasAsset: cd.AssetID.Valid && drafting.RulesFor(n, s.cfg).ImageOK,
+			HasAsset: len(crew.Attachments(card, s.l.IncludeCard, images, rules.MaxImages)) > 0,
 		})
 	}
 	return preflight.Run(ctx, d.preflightDeps(), pl)

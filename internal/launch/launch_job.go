@@ -173,10 +173,18 @@ func postCaptainDraft(ctx context.Context, d Deps, s *state, cd sqlc.CaptainDraf
 	if t := threadOf(cd.Thread); len(t) > 1 && rules.Threads {
 		in.Text, in.Thread = t[0], t
 	}
-	if cd.AssetID.Valid && rules.ImageOK {
-		if a, err := d.Q.GetLaunchAsset(ctx, cd.AssetID.UUID); err == nil {
-			in.AssetURLs = []string{a.R2Url}
+	if rules.ImageOK {
+		card := ""
+		if cd.AssetID.Valid {
+			if a, err := d.Q.GetLaunchAsset(ctx, cd.AssetID.UUID); err == nil {
+				card = a.R2Url
+			}
 		}
+		images, err := s.imageURLs(ctx, d)
+		if err != nil {
+			return err
+		}
+		in.AssetURLs = crew.Attachments(card, s.l.IncludeCard, images, rules.MaxImages)
 	}
 	timeout := d.PostTimeout
 	if timeout <= 0 {
